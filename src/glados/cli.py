@@ -15,9 +15,9 @@ from .utils import spoken_text_converter as stc
 from .utils.resources import resource_path
 
 # Type aliases for clarity
-type FileHash = str
-type FileURL = str
-type FileName = str
+FileHash = str
+FileURL = str
+FileName = str
 
 DEFAULT_CONFIG = resource_path("configs/glados_config.yaml")
 

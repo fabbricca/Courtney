@@ -35,15 +35,22 @@ class AudioProtocol(Protocol):
 
 
 # Factory function
-def get_audio_system(backend_type: str = "sounddevice", vad_threshold: float | None = None) -> AudioProtocol:
+def get_audio_system(
+    backend_type: str = "sounddevice",
+    vad_threshold: float | None = None,
+    network_host: str = "0.0.0.0",
+    network_port: int = 5555,
+) -> AudioProtocol:
     """
     Factory function to get an instance of an audio I/O system based on the specified backend type.
 
     Parameters:
         backend_type (str): The type of audio backend to use:
             - "sounddevice": Uses the sounddevice library for local audio I/O
-            - "websocket": Network-based audio I/O (not yet implemented)
+            - "network": Network-based audio I/O over TCP
         vad_threshold (float | None): Optional threshold for voice activity detection
+        network_host (str): Host to bind for network audio server
+        network_port (int): Port for network audio server
 
     Returns:
         AudioProtocol: An instance of the requested audio I/O system
@@ -55,6 +62,14 @@ def get_audio_system(backend_type: str = "sounddevice", vad_threshold: float | N
         from .sounddevice_io import SoundDeviceAudioIO
 
         return SoundDeviceAudioIO(
+            vad_threshold=vad_threshold,
+        )
+    elif backend_type == "network":
+        from .network_io import NetworkAudioIO
+
+        return NetworkAudioIO(
+            host=network_host,
+            port=network_port,
             vad_threshold=vad_threshold,
         )
     elif backend_type == "websocket":

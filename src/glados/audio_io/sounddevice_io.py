@@ -9,6 +9,13 @@ import sounddevice as sd  # type: ignore
 
 from . import VAD
 
+# Use PipeWire for better compatibility on modern Linux systems (Wayland/PulseAudio)
+try:
+    if 'pipewire' in [d['name'] for d in sd.query_devices()]:
+        sd.default.device = 'pipewire'
+except Exception:
+    pass  # Fall back to system default if PipeWire is not available
+
 
 class SoundDeviceAudioIO:
     """Audio I/O implementation using sounddevice for both input and output.
@@ -18,7 +25,7 @@ class SoundDeviceAudioIO:
     real-time audio capture with voice activity detection and audio playback.
     """
 
-    SAMPLE_RATE: int = 16000  # Sample rate for input stream
+    SAMPLE_RATE: int = 16000  # Sample rate for input stream (16kHz for ASR compatibility)
     VAD_SIZE: int = 32  # Milliseconds of sample for Voice Activity Detection (VAD)
     VAD_THRESHOLD: float = 0.8  # Threshold for VAD detection
 
@@ -86,7 +93,17 @@ class SoundDeviceAudioIO:
                 logger.debug(f"Audio callback status: {status}")
 
             data = np.array(indata).copy().squeeze()  # Reduce to single channel if necessary
-            vad_value = self._vad_model(np.expand_dims(data, 0))
+
+            # VAD expects exactly 512 samples at 16000 Hz for 32ms chunks
+            target_samples = 512
+            
+            # Since we're now capturing at 16000 Hz, just ensure correct sample count
+            if len(data) >= target_samples:
+                data_resampled = data[:target_samples]
+            else:
+                data_resampled = np.pad(data, (0, target_samples - len(data)), 'constant')
+
+            vad_value = self._vad_model(np.expand_dims(data_resampled, 0))
             vad_confidence = vad_value > self.vad_threshold
             self._sample_queue.put((data, bool(vad_confidence)))
 
@@ -133,6 +150,34 @@ class SoundDeviceAudioIO:
             raise ValueError("Invalid audio data")
 
         if sample_rate is None:
+            sample_rate = self.SAMPLE_RATE
+
+        # Resample audio data to match hardware capabilities if needed
+        if sample_rate != self.SAMPLE_RATE:
+            logger.debug(f"Resampling audio from {sample_rate} Hz to {self.SAMPLE_RATE} Hz")
+            # Handle multi-dimensional audio data (squeeze to 1D for resampling)
+            original_shape = audio_data.shape
+            if len(original_shape) > 1:
+                # Squeeze to 1D for resampling
+                audio_1d = audio_data.squeeze()
+            else:
+                audio_1d = audio_data
+
+            # Calculate the resampling ratio
+            ratio = self.SAMPLE_RATE / sample_rate
+            new_length = int(len(audio_1d) * ratio)
+
+            # Use numpy's interp for resampling (simple linear interpolation)
+            original_indices = np.arange(len(audio_1d))
+            new_indices = np.linspace(0, len(audio_1d) - 1, new_length)
+            resampled_1d = np.interp(new_indices, original_indices, audio_1d).astype(np.float32)
+
+            # Reshape back to original dimensions if needed
+            if len(original_shape) > 1:
+                audio_data = resampled_1d.reshape(-1, 1)
+            else:
+                audio_data = resampled_1d
+
             sample_rate = self.SAMPLE_RATE
 
         # Stop any existing playback

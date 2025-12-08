@@ -64,6 +64,10 @@ class SpeechPlayer:
 
                     self.audio_io.start_speaking(audio_msg.audio, self.tts_sample_rate)
                     logger.success(f"TTS text: {audio_msg.text}")
+                    
+                    # Send text to network client if available
+                    if hasattr(self.audio_io, 'send_text_to_client'):
+                        self.audio_io.send_text_to_client(audio_msg.text)
 
                     # Wait for the audio to finish playing or be interrupted
                     interrupted, percentage_played = self.audio_io.measure_percentage_spoken(

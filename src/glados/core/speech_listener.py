@@ -242,6 +242,10 @@ class SpeechListener:
 
         if detected_text:
             logger.success(f"ASR text: '{detected_text}'")
+            
+            # Send transcription back to network client if available
+            if hasattr(self.audio_io, 'send_user_transcription'):
+                self.audio_io.send_user_transcription(detected_text)
 
             if self.wake_word and not self._wakeword_detected(detected_text):
                 logger.info(f"Required wake word {self.wake_word=} not detected.")

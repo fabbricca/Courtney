@@ -4,11 +4,14 @@ import queue
 import re
 import threading
 import time
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 from loguru import logger
 from pydantic import HttpUrl  # If HttpUrl is used by config
 import requests
+
+from ..memory.conversation_memory import ConversationMemory
+from ..memory.combined_memory import CombinedMemory
 
 
 class LanguageModelProcessor:
@@ -32,6 +35,8 @@ class LanguageModelProcessor:
         processing_active_event: threading.Event,  # To check if we should stop streaming
         shutdown_event: threading.Event,
         pause_time: float = 0.05,
+        conversation_memory: ConversationMemory | None = None,
+        combined_memory: Optional[CombinedMemory] = None,
     ) -> None:
         self.llm_input_queue = llm_input_queue
         self.tts_input_queue = tts_input_queue
@@ -42,6 +47,8 @@ class LanguageModelProcessor:
         self.processing_active_event = processing_active_event
         self.shutdown_event = shutdown_event
         self.pause_time = pause_time
+        self.conversation_memory = conversation_memory
+        self.combined_memory = combined_memory
 
         self.prompt_headers = {"Content-Type": "application/json"}
         if api_key:
@@ -139,17 +146,55 @@ class LanguageModelProcessor:
                     # This logic might need refinement based on state. For now, assume no prior stream.
                     continue
 
-                logger.info(f"LLM Processor: Received text for LLM: '{detected_text}'")
+                # Signal that conversation is active (pause background extraction)
+                if self.combined_memory:
+                    self.combined_memory.on_conversation_start()
+
+                import time as _time
+                _start_time = _time.time()
+                
+                logger.success(f"LLM Processor: Received text for LLM: '{detected_text}'")
                 self.conversation_history.append({"role": "user", "content": detected_text})
+
+                # Prepare messages for LLM with conversation context
+                messages_for_llm = self.conversation_history.copy()
+
+                # Use combined memory if available (includes entity context + conversation history)
+                if self.combined_memory:
+                    try:
+                        memory_context = self.combined_memory.build_context_messages(max_turns=10)
+                        # Insert memory context after system prompt but before current conversation
+                        system_messages = [msg for msg in messages_for_llm if msg["role"] == "system"]
+                        other_messages = [msg for msg in messages_for_llm if msg["role"] != "system"]
+
+                        # Reconstruct messages: system + memory context + current conversation
+                        messages_for_llm = system_messages + memory_context + other_messages
+
+                        logger.debug(f"LLM Processor: Added {len(memory_context)} memory context messages")
+                    except Exception as e:
+                        logger.warning(f"LLM Processor: Failed to retrieve memory context: {e}")
+                # Fallback to basic conversation memory
+                elif self.conversation_memory:
+                    try:
+                        memory_context = self.conversation_memory.get_context_as_messages(max_turns=10)
+                        system_messages = [msg for msg in messages_for_llm if msg["role"] == "system"]
+                        other_messages = [msg for msg in messages_for_llm if msg["role"] != "system"]
+                        messages_for_llm = system_messages + memory_context + other_messages
+                        logger.debug(f"LLM Processor: Added {len(memory_context)} memory context messages")
+                    except Exception as e:
+                        logger.warning(f"LLM Processor: Failed to retrieve memory context: {e}")
 
                 data = {
                     "model": self.model_name,
                     "stream": True,
-                    "messages": self.conversation_history,
+                    "messages": messages_for_llm,
                     # Add other parameters like temperature, max_tokens if needed from config
                 }
+                
+                logger.success(f"LLM Processor: Memory context built in {(_time.time() - _start_time)*1000:.0f}ms, sending {len(messages_for_llm)} messages to LLM")
 
                 sentence_buffer: list[str] = []
+                assistant_response_buffer: list[str] = []  # Accumulate full response for memory
                 try:
                     with requests.post(
                         str(self.completion_url),
@@ -159,8 +204,13 @@ class LanguageModelProcessor:
                         timeout=30,  # Add a timeout for the request itself
                     ) as response:
                         response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                        _first_token_time = None
                         logger.debug("LLM Processor: Request to LLM successful, processing stream...")
                         for line in response.iter_lines():
+                            if _first_token_time is None:
+                                _first_token_time = _time.time()
+                                logger.success(f"LLM Processor: First token in {(_first_token_time - _start_time)*1000:.0f}ms")
+                            
                             if not self.processing_active_event.is_set() or self.shutdown_event.is_set():
                                 logger.info("LLM Processor: Interruption or shutdown detected during LLM stream.")
                                 break  # Stop processing stream
@@ -171,6 +221,8 @@ class LanguageModelProcessor:
                                     chunk = self._process_chunk(cleaned_line_data)
                                     if chunk:  # Chunk can be an empty string, but None means no actual content
                                         sentence_buffer.append(chunk)
+                                        assistant_response_buffer.append(chunk)  # Accumulate for memory
+
                                         # Split on defined punctuation or if chunk itself is punctuation
                                         if chunk.strip() in self.PUNCTUATION_SET and (
                                             len(sentence_buffer) < 2 or not sentence_buffer[-2].strip().isdigit()
@@ -187,6 +239,32 @@ class LanguageModelProcessor:
                         # After loop, process any remaining buffer content if not interrupted
                         if self.processing_active_event.is_set() and sentence_buffer:
                             self._process_sentence_for_tts(sentence_buffer)
+
+                        # Store conversation turn in memory (only if successful response)
+                        if assistant_response_buffer:
+                            full_assistant_response = "".join(assistant_response_buffer).strip()
+                            
+                            # Use combined memory if available (handles both conversation + entity extraction)
+                            if self.combined_memory:
+                                try:
+                                    self.combined_memory.add_exchange(
+                                        user_input=detected_text,
+                                        assistant_response=full_assistant_response,
+                                    )
+                                    logger.debug("LLM Processor: Stored exchange in combined memory")
+                                except Exception as e:
+                                    logger.warning(f"LLM Processor: Failed to store in combined memory: {e}")
+                            # Fallback to basic conversation memory
+                            elif self.conversation_memory:
+                                try:
+                                    self.conversation_memory.add_turn(
+                                        user_input=detected_text,
+                                        assistant_response=full_assistant_response,
+                                        conversation_id="default"
+                                    )
+                                    logger.debug("LLM Processor: Stored conversation turn in memory")
+                                except Exception as e:
+                                    logger.warning(f"LLM Processor: Failed to store conversation in memory: {e}")
 
                 except requests.exceptions.ConnectionError as e:
                     logger.error(f"LLM Processor: Connection error to LLM service: {e}")
@@ -211,6 +289,10 @@ class LanguageModelProcessor:
                     logger.exception(f"LLM Processor: Unexpected error during LLM request/streaming: {e}")
                     self.tts_input_queue.put("I'm having a little trouble thinking right now.")
                 finally:
+                    # Signal that conversation processing is done - resume background extraction
+                    if self.combined_memory:
+                        self.combined_memory.on_conversation_end()
+                    
                     # Always send EOS if we started processing, unless interrupted early
                     if self.processing_active_event.is_set():  # Only send EOS if not interrupted
                         logger.debug("LLM Processor: Sending EOS token to TTS queue.")
@@ -223,7 +305,9 @@ class LanguageModelProcessor:
                         # The `processing_active_event` is key to synchronize.
 
             except queue.Empty:
-                pass  # Normal
+                # Idle time - trigger background summarization if available
+                if self.conversation_memory and hasattr(self.conversation_memory, 'trigger_summary_update'):
+                    self.conversation_memory.trigger_summary_update()
             except Exception as e:
                 logger.exception(f"LLM Processor: Unexpected error in main run loop: {e}")
                 time.sleep(0.1)
