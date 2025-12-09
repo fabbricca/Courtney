@@ -68,6 +68,14 @@ check_service() {
     return 1
 }
 
+# Check for Python dependencies
+echo -e "${YELLOW}[0/4] Checking dependencies...${NC}"
+if ! python -c "import loguru" 2>/dev/null; then
+    echo -e "${RED}Error: Python dependencies not found.${NC}"
+    echo "Please run: pip install -r requirements.txt"
+    exit 1
+fi
+
 # Step 1: Check/Start Ollama
 echo -e "${YELLOW}[1/4] Checking Ollama...${NC}"
 if ! pgrep -x "ollama" > /dev/null; then
