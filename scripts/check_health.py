@@ -48,7 +48,7 @@ def main():
     if not check_http("http://localhost:5050/models", "RVC API"): all_good = False
     
     # 3. Check GLaDOS Main Server
-    if not check_port("0.0.0.0", 5555, "GLaDOS Server"): all_good = False
+    if not check_port("127.0.0.1", 5555, "GLaDOS Server"): all_good = False
     
     print("\n" + "="*40)
     if all_good:
