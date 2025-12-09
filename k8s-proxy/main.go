@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -112,29 +111,44 @@ func handleConnection(clientConn net.Conn) {
 
 	log.Printf("[%d] Connected to target %s", connID, *targetAddr)
 
-	// Bidirectional copy
-	var wg sync.WaitGroup
-	var bytesIn, bytesOut int64
+	// Disable Nagle's algorithm for lower latency
+	if tc, ok := clientConn.(*net.TCPConn); ok {
+		tc.SetNoDelay(true)
+		tc.SetKeepAlive(true)
+		tc.SetKeepAlivePeriod(30 * time.Second)
+	}
+	if tc, ok := targetConn.(*net.TCPConn); ok {
+		tc.SetNoDelay(true)
+		tc.SetKeepAlive(true)
+		tc.SetKeepAlivePeriod(30 * time.Second)
+	}
 
-	wg.Add(2)
+	// Use a done channel to coordinate shutdown
+	done := make(chan struct{})
+	var bytesIn, bytesOut int64
 
 	// Client -> Target
 	go func() {
-		defer wg.Done()
-		n, _ := copyBuffer(targetConn, clientConn)
+		n, err := copyBuffer(targetConn, clientConn)
 		bytesIn = n
+		if err != nil {
+			log.Printf("[%d] Client->Target error: %v", connID, err)
+		}
+		// Signal the other direction to stop
 		targetConn.(*net.TCPConn).CloseWrite()
+		close(done)
 	}()
 
-	// Target -> Client
-	go func() {
-		defer wg.Done()
-		n, _ := copyBuffer(clientConn, targetConn)
-		bytesOut = n
-		clientConn.(*net.TCPConn).CloseWrite()
-	}()
+	// Target -> Client (runs in main goroutine for this connection)
+	n, err := copyBuffer(clientConn, targetConn)
+	bytesOut = n
+	if err != nil {
+		log.Printf("[%d] Target->Client error: %v", connID, err)
+	}
+	clientConn.(*net.TCPConn).CloseWrite()
 
-	wg.Wait()
+	// Wait for the other direction to finish
+	<-done
 
 	clientConn.Close()
 	targetConn.Close()
