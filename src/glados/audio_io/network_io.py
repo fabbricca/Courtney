@@ -16,6 +16,7 @@ import queue
 import socket
 import struct
 import threading
+import time
 from typing import Optional
 
 from loguru import logger
@@ -168,8 +169,8 @@ class NetworkAudioIO:
                         
                 except socket.timeout:
                     continue
-                except (OSError, ConnectionResetError):
-                    logger.info("Client connection lost")
+                except (OSError, ConnectionResetError) as e:
+                    logger.info(f"Client connection lost: {e}")
                     break
             
             # Cleanup after disconnect - loop back to accept new client
@@ -290,7 +291,13 @@ class NetworkAudioIO:
         """Send a text message to the client."""
         if not self._client_connected or self._client_socket is None:
             logger.warning("No client connected, cannot send text")
-            return
+            # Try to wait briefly for reconnection
+            for _ in range(5):
+                time.sleep(0.1)
+                if self._client_connected and self._client_socket:
+                    break
+            if not self._client_connected or self._client_socket is None:
+                return
         
         text_bytes = text.encode('utf-8')
         # Protocol: [0xFFFFFFFE][length][utf-8 text]
