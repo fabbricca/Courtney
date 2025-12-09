@@ -37,6 +37,10 @@ class LanguageModelProcessor:
         pause_time: float = 0.05,
         conversation_memory: ConversationMemory | None = None,
         combined_memory: Optional[CombinedMemory] = None,
+        temperature: float = 0.8,
+        repeat_penalty: float = 1.15,
+        top_p: float = 0.9,
+        top_k: int = 40,
     ) -> None:
         self.llm_input_queue = llm_input_queue
         self.tts_input_queue = tts_input_queue
@@ -50,9 +54,21 @@ class LanguageModelProcessor:
         self.conversation_memory = conversation_memory
         self.combined_memory = combined_memory
 
+        # LLM sampling parameters to reduce repetition
+        self.temperature = temperature
+        self.repeat_penalty = repeat_penalty
+        self.top_p = top_p
+        self.top_k = top_k
+
+        # Maximum conversation turns to send to LLM (excluding system/few-shot prompts)
+        self.max_conversation_turns = 6  # 6 user+assistant pairs = 12 messages
+
         self.prompt_headers = {"Content-Type": "application/json"}
         if api_key:
             self.prompt_headers["Authorization"] = f"Bearer {api_key}"
+        
+        # Track last sent sentence to prevent duplicates
+        self._last_sent_sentence: str = ""
 
     def _clean_raw_bytes(self, line: bytes) -> dict[str, str] | None:
         """
@@ -122,10 +138,19 @@ class LanguageModelProcessor:
         sentence = "".join(current_sentence_parts)
         sentence = re.sub(r"\*.*?\*|\(.*?\)", "", sentence)
         sentence = sentence.replace("\n\n", ". ").replace("\n", ". ").replace("  ", " ").replace(":", " ")
+        sentence = sentence.strip()
 
         if sentence and sentence != ".":  # Avoid sending just a period
-            logger.info(f"LLM Processor: Sending to TTS queue: '{sentence}'")
-            self.tts_input_queue.put(sentence)
+            # Deduplicate: check if this sentence is essentially the same as the last one
+            normalized_current = sentence.rstrip('.!?').lower()
+            normalized_last = self._last_sent_sentence.rstrip('.!?').lower()
+            
+            if normalized_current and normalized_current != normalized_last:
+                logger.info(f"LLM Processor: Sending to TTS queue: '{sentence}'")
+                self.tts_input_queue.put(sentence)
+                self._last_sent_sentence = sentence
+            else:
+                logger.debug(f"LLM Processor: Skipping duplicate sentence: '{sentence}'")
 
     def run(self) -> None:
         """
@@ -153,11 +178,43 @@ class LanguageModelProcessor:
                 import time as _time
                 _start_time = _time.time()
                 
+                # Reset duplicate sentence tracker for new conversation turn
+                self._last_sent_sentence = ""
+                
                 logger.success(f"LLM Processor: Received text for LLM: '{detected_text}'")
                 self.conversation_history.append({"role": "user", "content": detected_text})
 
                 # Prepare messages for LLM with conversation context
-                messages_for_llm = self.conversation_history.copy()
+                # Separate system/few-shot prompts from actual conversation turns
+                system_fewshot = []
+                conversation_turns = []
+                
+                for msg in self.conversation_history:
+                    # System messages and early assistant/user examples are kept as prompts
+                    if msg["role"] == "system":
+                        system_fewshot.append(msg)
+                    elif len(conversation_turns) == 0 and len(system_fewshot) > 0:
+                        # Few-shot examples following system prompt
+                        # Check if this looks like a few-shot example (short, template-like)
+                        content_len = len(msg.get("content", ""))
+                        if content_len < 200 and any(
+                            q in msg.get("content", "").lower() 
+                            for q in ["how do i", "what should", "what game"]
+                        ):
+                            system_fewshot.append(msg)
+                        else:
+                            conversation_turns.append(msg)
+                    else:
+                        conversation_turns.append(msg)
+                
+                # Limit conversation turns (keep last N * 2 messages for N turns)
+                max_messages = self.max_conversation_turns * 2
+                if len(conversation_turns) > max_messages:
+                    conversation_turns = conversation_turns[-max_messages:]
+                    logger.debug(f"LLM Processor: Trimmed conversation to {max_messages} messages")
+                
+                messages_for_llm = system_fewshot + conversation_turns
+                logger.debug(f"LLM Processor: {len(system_fewshot)} system/fewshot + {len(conversation_turns)} conversation messages")
 
                 # Use combined memory if available (includes entity context + conversation history)
                 if self.combined_memory:
@@ -188,7 +245,10 @@ class LanguageModelProcessor:
                     "model": self.model_name,
                     "stream": True,
                     "messages": messages_for_llm,
-                    # Add other parameters like temperature, max_tokens if needed from config
+                    "temperature": self.temperature,
+                    "repeat_penalty": self.repeat_penalty,
+                    "top_p": self.top_p,
+                    "top_k": self.top_k,
                 }
                 
                 logger.success(f"LLM Processor: Memory context built in {(_time.time() - _start_time)*1000:.0f}ms, sending {len(messages_for_llm)} messages to LLM")
@@ -243,6 +303,9 @@ class LanguageModelProcessor:
                         # Store conversation turn in memory (only if successful response)
                         if assistant_response_buffer:
                             full_assistant_response = "".join(assistant_response_buffer).strip()
+                            
+                            # Note: conversation_history is updated by speech_player when EOS is processed
+                            # to ensure it only includes actually spoken content
                             
                             # Use combined memory if available (handles both conversation + entity extraction)
                             if self.combined_memory:

@@ -263,13 +263,15 @@ class GLaDOSTerminalClient:
             _time.sleep(0.2)
 
     def _keepalive_loop(self):
-        """Send silence packets periodically to keep the TCP connection alive."""
+        """Send keepalive to prevent connection timeout."""
         import time as _time
-        silence_chunk = np.zeros(SERVER_SAMPLE_RATE // 10, dtype=np.int16).tobytes() # 100ms silence
+        # Send properly sized silence chunks (512 samples = 1024 bytes, matching server expectation)
+        silence_chunk = np.zeros(512, dtype=np.int16).tobytes()
         
         while self.running:
             if self.socket:
                 try:
+                    # Send a few properly-sized chunks to keep connection alive
                     self.socket.sendall(silence_chunk)
                 except:
                     pass

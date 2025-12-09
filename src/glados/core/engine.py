@@ -124,6 +124,11 @@ class GladosConfig(BaseModel):
     network_port: int = 5555
     # RVC voice cloning settings
     rvc: RVCConfig = RVCConfig()
+    # LLM sampling parameters to reduce repetition
+    temperature: float = 0.8
+    repeat_penalty: float = 1.15
+    top_p: float = 0.9
+    top_k: int = 40
 
     @classmethod
     def from_yaml(cls, path: str | Path, key_to_config: tuple[str, ...] = ("Glados",)) -> "GladosConfig":
@@ -315,6 +320,10 @@ class Glados:
             pause_time=self.PAUSE_TIME,
             conversation_memory=self.conversation_memory,
             combined_memory=self.combined_memory,
+            temperature=config.temperature if config else 0.8,
+            repeat_penalty=config.repeat_penalty if config else 1.15,
+            top_p=config.top_p if config else 0.9,
+            top_k=config.top_k if config else 40,
         )
 
         self.tts_synthesizer = TextToSpeechSynthesizer(

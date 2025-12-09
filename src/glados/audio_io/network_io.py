@@ -189,10 +189,10 @@ class NetworkAudioIO:
                 except socket.timeout:
                     continue
                 except (OSError, ConnectionResetError) as e:
-                    logger.error(f"Client connection lost (Error): {e}")
+                    logger.error(f"Client connection lost: {e}")
                     break
                 except Exception as e:
-                    logger.error(f"Client connection lost (Unexpected): {e}")
+                    logger.error(f"Client connection error: {e}")
                     break
             
             # Cleanup after disconnect - loop back to accept new client
