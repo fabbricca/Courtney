@@ -55,16 +55,17 @@ spec:
           limits:
             memory: "64Mi"
             cpu: "100m"
-        livenessProbe:
-          tcpSocket:
-            port: 5555
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        readinessProbe:
-          tcpSocket:
-            port: 5555
-          initialDelaySeconds: 2
-          periodSeconds: 5
+        # Probes removed to prevent connection flooding on the single-threaded backend
+        # livenessProbe:
+        #   tcpSocket:
+        #     port: 5555
+        #   initialDelaySeconds: 5
+        #   periodSeconds: 10
+        # readinessProbe:
+        #   tcpSocket:
+        #     port: 5555
+        #   initialDelaySeconds: 2
+        #   periodSeconds: 5
 
 ---
 apiVersion: v1

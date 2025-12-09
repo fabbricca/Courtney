@@ -249,22 +249,8 @@ class GLaDOSTerminalClient:
 
     def _input_loop(self):
         """Handle keyboard input."""
-        import time as _time
-        while self.running:
-            try:
-                # Use select for non-blocking input on Linux
-                if select.select([sys.stdin], [], [], 0.1)[0]:
-                    line = sys.stdin.readline()
-                    if line:
-                        text = line.strip()
-                        if text:
-                            if text.lower() in ('quit', 'exit', 'q'):
-                                print("\nExiting...")
-                                self.running = False
-                                break
-                            self.send_text_message(text)
-            except Exception:
-                _time.sleep(0.1)
+        # Deprecated: Input is now handled in the main thread
+        pass
 
     def run(self):
         """Main entry point."""
@@ -308,13 +294,19 @@ class GLaDOSTerminalClient:
         try:
             while self.running:
                 try:
-                    line = input("\n> ")
-                    if line.strip():
-                        if line.strip().lower() in ('quit', 'exit', 'q'):
-                            break
-                        self.send_text_message(line.strip())
-                except EOFError:
-                    break
+                    # Use select for non-blocking input on Linux
+                    if select.select([sys.stdin], [], [], 0.1)[0]:
+                        line = sys.stdin.readline()
+                        if line:
+                            text = line.strip()
+                            if text:
+                                if text.lower() in ('quit', 'exit', 'q'):
+                                    print("\nExiting...")
+                                    self.running = False
+                                    break
+                                self.send_text_message(text)
+                except Exception:
+                    pass
         except KeyboardInterrupt:
             pass
         
