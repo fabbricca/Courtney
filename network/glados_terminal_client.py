@@ -110,7 +110,15 @@ class GLaDOSTerminalClient:
 
     def _audio_input_callback(self, indata, frames, time, status):
         """Callback for audio input."""
-        if not self.recording_enabled or not self.socket or not self.running:
+        if not self.socket or not self.running:
+            return
+
+        # If recording is disabled (muted), send silence occasionally to keep connection alive
+        if not self.recording_enabled:
+            # Send silence every ~0.5 seconds (approx every 15 calls at 32ms chunks)
+            # We don't track time here, but we can just send a tiny silence packet
+            # actually, let's just return. The server should handle idle connections.
+            # But if the tunnel drops idle connections, we might need keepalives.
             return
         
         # Resample from 48kHz to 16kHz
@@ -247,6 +255,19 @@ class GLaDOSTerminalClient:
             
             _time.sleep(0.2)
 
+    def _keepalive_loop(self):
+        """Send silence packets periodically to keep the TCP connection alive."""
+        import time as _time
+        silence_chunk = np.zeros(SERVER_SAMPLE_RATE // 10, dtype=np.int16).tobytes() # 100ms silence
+        
+        while self.running:
+            if self.socket:
+                try:
+                    self.socket.sendall(silence_chunk)
+                except:
+                    pass
+            _time.sleep(2.0)
+
     def _input_loop(self):
         """Handle keyboard input."""
         # Deprecated: Input is now handled in the main thread
@@ -288,6 +309,10 @@ class GLaDOSTerminalClient:
         # Start mic check thread
         self.mic_check_thread = threading.Thread(target=self._mic_check_loop, daemon=True)
         self.mic_check_thread.start()
+        
+        # Start keepalive thread
+        self.keepalive_thread = threading.Thread(target=self._keepalive_loop, daemon=True)
+        self.keepalive_thread.start()
         
         # Main input loop (runs in main thread)
         print("\r\033[91m🔇 Mic muted\033[0m - Type message and press Enter, or unmute to speak", end="", flush=True)
