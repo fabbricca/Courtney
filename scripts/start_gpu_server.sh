@@ -109,6 +109,7 @@ pkill -f "glados.cli" 2>/dev/null || true
 sleep 2
 
 # Start GLaDOS
+export PYTHONPATH="$GLADOS_DIR/src:$PYTHONPATH"
 nohup python -m glados.cli start --config "$CONFIG_FILE" > "$LOG_DIR/glados.log" 2>&1 &
 GLADOS_PID=$!
 
