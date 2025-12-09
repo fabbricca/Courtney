@@ -37,6 +37,7 @@ LOCAL_CHUNK_SAMPLES = int(LOCAL_SAMPLE_RATE * CHUNK_MS / 1000)
 TEXT_MESSAGE_MARKER = 0xFFFFFFFF
 ASSISTANT_TEXT_MARKER = 0xFFFFFFFE
 USER_TRANSCRIPTION_MARKER = 0xFFFFFFFD
+KEEPALIVE_MARKER = 0xFFFFFFFC
 
 
 class MicMuteDetector:
@@ -196,6 +197,12 @@ class GLaDOSTerminalClient:
                         print(f"\033[93mGLaDOS:\033[0m {text}")
                         continue
                     
+                    # Check for keepalive
+                    if length == KEEPALIVE_MARKER:
+                        # Ignore keepalive packets
+                        buffer = buffer[8:]
+                        continue
+
                     # Stop playback command
                     if length == 0:
                         with self.playback_lock:

@@ -30,6 +30,7 @@ from . import VAD
 TEXT_MESSAGE_FROM_CLIENT = 0xFFFFFFFF
 TEXT_MESSAGE_TO_CLIENT = 0xFFFFFFFE
 USER_TRANSCRIPTION_TO_CLIENT = 0xFFFFFFFD  # Send ASR transcription back to client
+KEEPALIVE_TO_CLIENT = 0xFFFFFFFC
 
 
 class NetworkAudioIO:
@@ -71,6 +72,7 @@ class NetworkAudioIO:
         self._shutdown_event = threading.Event()
         
         self._listen_thread: Optional[threading.Thread] = None
+        self._keepalive_thread: Optional[threading.Thread] = None
         self._playback_lock = threading.Lock()
 
     def start_listening(self) -> None:
@@ -89,6 +91,23 @@ class NetworkAudioIO:
         # Wait for client in a thread
         self._listen_thread = threading.Thread(target=self._accept_and_receive, daemon=True)
         self._listen_thread.start()
+        
+        # Start keepalive thread
+        self._keepalive_thread = threading.Thread(target=self._send_keepalives, daemon=True)
+        self._keepalive_thread.start()
+
+    def _send_keepalives(self) -> None:
+        """Send periodic keepalive packets to client."""
+        while not self._shutdown_event.is_set():
+            if self._client_connected and self._client_socket:
+                try:
+                    # Send keepalive: [0xFFFFFFFC][0]
+                    header = struct.pack("<II", KEEPALIVE_TO_CLIENT, 0)
+                    with self._playback_lock:
+                        self._client_socket.sendall(header)
+                except:
+                    pass
+            time.sleep(2.0)
 
     def _accept_and_receive(self) -> None:
         """Accept client connection and receive audio and text messages."""
