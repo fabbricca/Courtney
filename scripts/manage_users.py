@@ -46,17 +46,16 @@ def list_users(args):
     # For now, we'll need to query the database directly
     import sqlite3
 
-    conn = sqlite3.connect(str(user_manager.db.db_path))
-    cursor = conn.cursor()
+    with sqlite3.connect(str(user_manager.db.db_path)) as conn:
+        cursor = conn.cursor()
 
-    cursor.execute("""
+        cursor.execute("""
         SELECT user_id, username, email, is_active, is_admin, role, created_at
         FROM users
         ORDER BY created_at DESC
     """)
 
     rows = cursor.fetchall()
-    conn.close()
 
     if not rows:
         print("No users found.")
@@ -133,17 +132,16 @@ def change_role(args):
     # Update role in database
     import sqlite3
 
-    conn = sqlite3.connect(str(user_manager.db.db_path))
-    cursor = conn.cursor()
+    with sqlite3.connect(str(user_manager.db.db_path)) as conn:
+        cursor = conn.cursor()
 
-    cursor.execute("""
+        cursor.execute("""
         UPDATE users
         SET role = ?, is_admin = ?
         WHERE username = ?
     """, (args.role, 1 if args.role == "admin" else 0, args.username))
 
     conn.commit()
-    conn.close()
 
     print(f"\n✓ Role updated successfully!")
     print(f"  Username: {args.username}")
@@ -163,17 +161,16 @@ def set_active(args):
     # Update active status
     import sqlite3
 
-    conn = sqlite3.connect(str(user_manager.db.db_path))
-    cursor = conn.cursor()
+    with sqlite3.connect(str(user_manager.db.db_path)) as conn:
+        cursor = conn.cursor()
 
-    cursor.execute("""
+        cursor.execute("""
         UPDATE users
         SET is_active = ?
         WHERE username = ?
     """, (1 if args.active else 0, args.username))
 
     conn.commit()
-    conn.close()
 
     status = "activated" if args.active else "deactivated"
     print(f"\n✓ User {status} successfully!")
@@ -200,16 +197,15 @@ def delete_user(args):
     # Delete user
     import sqlite3
 
-    conn = sqlite3.connect(str(user_manager.db.db_path))
-    cursor = conn.cursor()
+    with sqlite3.connect(str(user_manager.db.db_path)) as conn:
+        cursor = conn.cursor()
 
-    # Delete user and related data
+        # Delete user and related data
     cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user.user_id,))
     cursor.execute("DELETE FROM user_roles WHERE user_id = ?", (user.user_id,))
     cursor.execute("DELETE FROM users WHERE user_id = ?", (user.user_id,))
 
     conn.commit()
-    conn.close()
 
     print(f"\n✓ User deleted successfully!")
     print(f"  Username: {args.username}")
@@ -228,15 +224,14 @@ def revoke_tokens(args):
     # Delete all sessions for user
     import sqlite3
 
-    conn = sqlite3.connect(str(user_manager.db.db_path))
-    cursor = conn.cursor()
+    with sqlite3.connect(str(user_manager.db.db_path)) as conn:
+        cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user.user_id,))
+        cursor.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user.user_id,))
     count = cursor.fetchone()[0]
 
     cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user.user_id,))
     conn.commit()
-    conn.close()
 
     print(f"\n✓ Tokens revoked successfully!")
     print(f"  Username: {args.username}")

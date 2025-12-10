@@ -42,96 +42,95 @@ class UserDatabase:
     def _init_db(self):
         """Create tables if they don't exist."""
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            # Users table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id TEXT PRIMARY KEY,
-                    username TEXT UNIQUE NOT NULL,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    is_active INTEGER DEFAULT 1,
-                    is_admin INTEGER DEFAULT 0,
-                    role TEXT DEFAULT 'user'
-                )
-            """)
+                # Users table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id TEXT PRIMARY KEY,
+                        username TEXT UNIQUE NOT NULL,
+                        email TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        is_active INTEGER DEFAULT 1,
+                        is_admin INTEGER DEFAULT 0,
+                        role TEXT DEFAULT 'user'
+                    )
+                """)
 
-            # Migration: Add role column if it doesn't exist (v2.1+)
-            try:
-                cursor.execute("SELECT role FROM users LIMIT 1")
-            except sqlite3.OperationalError:
-                # Column doesn't exist, add it
-                cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
-                # Set admin role for existing admin users
-                cursor.execute("UPDATE users SET role = 'admin' WHERE is_admin = 1")
-                logger.info("Migrated database: Added role column to users table")
+                # Migration: Add role column if it doesn't exist (v2.1+)
+                try:
+                    cursor.execute("SELECT role FROM users LIMIT 1")
+                except sqlite3.OperationalError:
+                    # Column doesn't exist, add it
+                    cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+                    # Set admin role for existing admin users
+                    cursor.execute("UPDATE users SET role = 'admin' WHERE is_admin = 1")
+                    logger.info("Migrated database: Added role column to users table")
 
-            # Roles table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS roles (
-                    role_id TEXT PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    description TEXT
-                )
-            """)
+                # Roles table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS roles (
+                        role_id TEXT PRIMARY KEY,
+                        name TEXT UNIQUE NOT NULL,
+                        description TEXT
+                    )
+                """)
 
-            # Permissions table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS permissions (
-                    permission_id TEXT PRIMARY KEY,
-                    name TEXT UNIQUE NOT NULL,
-                    description TEXT,
-                    resource TEXT NOT NULL
-                )
-            """)
+                # Permissions table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS permissions (
+                        permission_id TEXT PRIMARY KEY,
+                        name TEXT UNIQUE NOT NULL,
+                        description TEXT,
+                        resource TEXT NOT NULL
+                    )
+                """)
 
-            # User roles (many-to-many)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_roles (
-                    user_id TEXT NOT NULL,
-                    role_id TEXT NOT NULL,
-                    assigned_at TEXT NOT NULL,
-                    PRIMARY KEY (user_id, role_id),
-                    FOREIGN KEY (user_id) REFERENCES users(user_id),
-                    FOREIGN KEY (role_id) REFERENCES roles(role_id)
-                )
-            """)
+                # User roles (many-to-many)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS user_roles (
+                        user_id TEXT NOT NULL,
+                        role_id TEXT NOT NULL,
+                        assigned_at TEXT NOT NULL,
+                        PRIMARY KEY (user_id, role_id),
+                        FOREIGN KEY (user_id) REFERENCES users(user_id),
+                        FOREIGN KEY (role_id) REFERENCES roles(role_id)
+                    )
+                """)
 
-            # Role permissions (many-to-many)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS role_permissions (
-                    role_id TEXT NOT NULL,
-                    permission_id TEXT NOT NULL,
-                    PRIMARY KEY (role_id, permission_id),
-                    FOREIGN KEY (role_id) REFERENCES roles(role_id),
-                    FOREIGN KEY (permission_id) REFERENCES permissions(permission_id)
-                )
-            """)
+                # Role permissions (many-to-many)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS role_permissions (
+                        role_id TEXT NOT NULL,
+                        permission_id TEXT NOT NULL,
+                        PRIMARY KEY (role_id, permission_id),
+                        FOREIGN KEY (role_id) REFERENCES roles(role_id),
+                        FOREIGN KEY (permission_id) REFERENCES permissions(permission_id)
+                    )
+                """)
 
-            # Sessions table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    token_jti TEXT UNIQUE NOT NULL,
-                    created_at TEXT NOT NULL,
-                    expires_at TEXT NOT NULL,
-                    last_activity TEXT NOT NULL,
-                    ip_address TEXT,
-                    FOREIGN KEY (user_id) REFERENCES users(user_id)
-                )
-            """)
+                # Sessions table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        session_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        token_jti TEXT UNIQUE NOT NULL,
+                        created_at TEXT NOT NULL,
+                        expires_at TEXT NOT NULL,
+                        last_activity TEXT NOT NULL,
+                        ip_address TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id)
+                    )
+                """)
 
-            # Indexes for performance
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_jti ON sessions(token_jti)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id)")
+                # Indexes for performance
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_jti ON sessions(token_jti)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id)")
 
-            conn.commit()
-            conn.close()
+                conn.commit()
 
             logger.info(f"User database initialized: {self.db_path}")
 
@@ -189,25 +188,24 @@ class UserDatabase:
                 role=role
             )
 
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("""
-                INSERT INTO users (user_id, username, email, password_hash, created_at, is_active, is_admin, role)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                user.user_id,
-                user.username,
-                user.email,
-                user.password_hash,
-                user.created_at.isoformat(),
-                1 if user.is_active else 0,
-                1 if user.is_admin else 0,
-                user.role
-            ))
+                cursor.execute("""
+                    INSERT INTO users (user_id, username, email, password_hash, created_at, is_active, is_admin, role)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    user.user_id,
+                    user.username,
+                    user.email,
+                    user.password_hash,
+                    user.created_at.isoformat(),
+                    1 if user.is_active else 0,
+                    1 if user.is_admin else 0,
+                    user.role
+                ))
 
-            conn.commit()
-            conn.close()
+                conn.commit()
 
             logger.info(f"User created: {username} ({user.user_id}) with role: {role}")
             return user
@@ -223,12 +221,11 @@ class UserDatabase:
             User object if found, None otherwise
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-            row = cursor.fetchone()
-            conn.close()
+                cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+                row = cursor.fetchone()
 
             if not row:
                 return None
@@ -255,12 +252,11 @@ class UserDatabase:
             User object if found, None otherwise
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-            row = cursor.fetchone()
-            conn.close()
+                cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
 
             if not row:
                 return None
@@ -306,12 +302,11 @@ class UserDatabase:
             List of all User objects
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("SELECT * FROM users ORDER BY username")
-            rows = cursor.fetchall()
-            conn.close()
+                cursor.execute("SELECT * FROM users ORDER BY username")
+                rows = cursor.fetchall()
 
             users = []
             for row in rows:
@@ -348,23 +343,22 @@ class UserDatabase:
             True if update succeeded
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("""
-                UPDATE users
-                SET email = ?, is_active = ?, is_admin = ?
-                WHERE user_id = ?
-            """, (
-                user.email,
-                1 if user.is_active else 0,
-                1 if user.is_admin else 0,
-                user.user_id
-            ))
+                cursor.execute("""
+                    UPDATE users
+                    SET email = ?, is_active = ?, is_admin = ?
+                    WHERE user_id = ?
+                """, (
+                    user.email,
+                    1 if user.is_active else 0,
+                    1 if user.is_admin else 0,
+                    user.user_id
+                ))
 
-            conn.commit()
-            success = cursor.rowcount > 0
-            conn.close()
+                conn.commit()
+                success = cursor.rowcount > 0
 
             if success:
                 logger.info(f"User updated: {user.username}")
@@ -382,21 +376,20 @@ class UserDatabase:
             True if deletion succeeded
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            # Delete user roles
-            cursor.execute("DELETE FROM user_roles WHERE user_id = ?", (user_id,))
+                # Delete user roles
+                cursor.execute("DELETE FROM user_roles WHERE user_id = ?", (user_id,))
 
-            # Delete sessions
-            cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+                # Delete sessions
+                cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
-            # Delete user
-            cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+                # Delete user
+                cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
 
-            conn.commit()
-            success = cursor.rowcount > 0
-            conn.close()
+                conn.commit()
+                success = cursor.rowcount > 0
 
             if success:
                 logger.info(f"User deleted: {user_id}")
@@ -418,19 +411,18 @@ class UserDatabase:
             List of permission names (e.g., ["chat:send", "memory:read"])
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT DISTINCT p.name
-                FROM permissions p
-                JOIN role_permissions rp ON p.permission_id = rp.permission_id
-                JOIN user_roles ur ON rp.role_id = ur.role_id
-                WHERE ur.user_id = ?
-            """, (user_id,))
+                cursor.execute("""
+                    SELECT DISTINCT p.name
+                    FROM permissions p
+                    JOIN role_permissions rp ON p.permission_id = rp.permission_id
+                    JOIN user_roles ur ON rp.role_id = ur.role_id
+                    WHERE ur.user_id = ?
+                """, (user_id,))
 
-            permissions = [row[0] for row in cursor.fetchall()]
-            conn.close()
+                permissions = [row[0] for row in cursor.fetchall()]
 
             return permissions
 
@@ -445,18 +437,17 @@ class UserDatabase:
             List of role names (e.g., ["user", "developer"])
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT r.name
-                FROM roles r
-                JOIN user_roles ur ON r.role_id = ur.role_id
-                WHERE ur.user_id = ?
-            """, (user_id,))
+                cursor.execute("""
+                    SELECT r.name
+                    FROM roles r
+                    JOIN user_roles ur ON r.role_id = ur.role_id
+                    WHERE ur.user_id = ?
+                """, (user_id,))
 
-            roles = [row[0] for row in cursor.fetchall()]
-            conn.close()
+                roles = [row[0] for row in cursor.fetchall()]
 
             return roles
 
@@ -475,25 +466,24 @@ class UserDatabase:
             True if creation succeeded
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("""
-                INSERT INTO sessions (session_id, user_id, token_jti, created_at, expires_at, last_activity, ip_address)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session.session_id,
-                session.user_id,
-                session.token_jti,
-                session.created_at.isoformat(),
-                session.expires_at.isoformat(),
-                session.last_activity.isoformat(),
-                session.ip_address
-            ))
+                cursor.execute("""
+                    INSERT INTO sessions (session_id, user_id, token_jti, created_at, expires_at, last_activity, ip_address)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    session.session_id,
+                    session.user_id,
+                    session.token_jti,
+                    session.created_at.isoformat(),
+                    session.expires_at.isoformat(),
+                    session.last_activity.isoformat(),
+                    session.ip_address
+                ))
 
-            conn.commit()
-            success = cursor.rowcount > 0
-            conn.close()
+                conn.commit()
+                success = cursor.rowcount > 0
 
             return success
 
@@ -508,12 +498,11 @@ class UserDatabase:
             Session object if found, None otherwise
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("SELECT * FROM sessions WHERE token_jti = ?", (token_jti,))
-            row = cursor.fetchone()
-            conn.close()
+                cursor.execute("SELECT * FROM sessions WHERE token_jti = ?", (token_jti,))
+                row = cursor.fetchone()
 
             if not row:
                 return None
@@ -539,14 +528,13 @@ class UserDatabase:
             True if deletion succeeded
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            cursor.execute("DELETE FROM sessions WHERE token_jti = ?", (token_jti,))
+                cursor.execute("DELETE FROM sessions WHERE token_jti = ?", (token_jti,))
 
-            conn.commit()
-            success = cursor.rowcount > 0
-            conn.close()
+                conn.commit()
+                success = cursor.rowcount > 0
 
             return success
 
@@ -558,15 +546,14 @@ class UserDatabase:
             Number of sessions deleted
         """
         with self._lock:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with sqlite3.connect(str(self.db_path)) as conn:
+                cursor = conn.cursor()
 
-            now = datetime.now().isoformat()
-            cursor.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+                now = datetime.now().isoformat()
+                cursor.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
 
-            conn.commit()
-            deleted = cursor.rowcount
-            conn.close()
+                conn.commit()
+                deleted = cursor.rowcount
 
             if deleted > 0:
                 logger.info(f"Cleaned up {deleted} expired sessions")
