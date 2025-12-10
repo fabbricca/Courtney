@@ -201,11 +201,11 @@ def delete_user(args):
         cursor = conn.cursor()
 
         # Delete user and related data
-    cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user.user_id,))
-    cursor.execute("DELETE FROM user_roles WHERE user_id = ?", (user.user_id,))
-    cursor.execute("DELETE FROM users WHERE user_id = ?", (user.user_id,))
+        cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user.user_id,))
+        cursor.execute("DELETE FROM user_roles WHERE user_id = ?", (user.user_id,))
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (user.user_id,))
 
-    conn.commit()
+        conn.commit()
 
     print(f"\n✓ User deleted successfully!")
     print(f"  Username: {args.username}")
@@ -228,10 +228,10 @@ def revoke_tokens(args):
         cursor = conn.cursor()
 
         cursor.execute("SELECT COUNT(*) FROM sessions WHERE user_id = ?", (user.user_id,))
-    count = cursor.fetchone()[0]
+        count = cursor.fetchone()[0]
 
-    cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user.user_id,))
-    conn.commit()
+        cursor.execute("DELETE FROM sessions WHERE user_id = ?", (user.user_id,))
+        conn.commit()
 
     print(f"\n✓ Tokens revoked successfully!")
     print(f"  Username: {args.username}")
