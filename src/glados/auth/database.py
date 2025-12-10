@@ -322,10 +322,20 @@ class UserDatabase:
                     password_hash=row[3],
                     created_at=datetime.fromisoformat(row[4]),
                     is_active=bool(row[5]),
-                    is_admin=bool(row[6])
+                    is_admin=bool(row[6]),
+                    role=row[7] if len(row) > 7 else "user"  # v2.1+: RBAC role
                 ))
 
             return users
+
+    def get_all_users(self) -> List[User]:
+        """
+        Get all users (alias for list_users for backward compatibility).
+
+        Returns:
+            List of all User objects
+        """
+        return self.list_users()
 
     def update_user(self, user: User) -> bool:
         """
