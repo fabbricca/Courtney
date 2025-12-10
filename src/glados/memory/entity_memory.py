@@ -20,20 +20,21 @@ from loguru import logger
 @dataclass
 class UserEntity:
     """Tracked information about the user. All fields are dynamic."""
-    
+
     # Core identity
     name: Optional[str] = None
-    
+    user_id: Optional[str] = None  # v2.1+: ID of the user this entity belongs to
+
     # Dynamic key-value store for any extracted information
     # Examples: {"favorite_color": "blue", "job": "engineer", "pet": "dog named Max"}
     attributes: Dict[str, str] = field(default_factory=dict)
-    
+
     # Relationships: {"mom": "Sarah", "boss": "John"}
     relationships: Dict[str, str] = field(default_factory=dict)
-    
+
     # Important facts as free-form strings
     facts: List[str] = field(default_factory=list)
-    
+
     # Timestamps for cache invalidation
     last_updated: float = field(default_factory=time.time)
 
@@ -66,20 +67,23 @@ Return only valid JSON, no explanation. Return empty object {{}} if no personal 
         self,
         persist_path: Optional[Path] = None,
         llm_caller: Optional[Callable[[str], str]] = None,
+        user_id: Optional[str] = None,  # v2.1+: User ID for multi-user isolation
     ):
         """
         Initialize entity memory.
-        
+
         Args:
             persist_path: Where to save extracted entities
             llm_caller: Async function to call LLM for extraction
                        Signature: (prompt: str) -> str (JSON response)
+            user_id: User ID for multi-user isolation (v2.1+, optional for backward compat)
         """
         self.persist_path = persist_path
         self.llm_caller = llm_caller
-        
+        self.user_id = user_id  # v2.1+: Filter entities by this user
+
         # In-memory cache - instant access
-        self.user = UserEntity()
+        self.user = UserEntity(user_id=user_id)
         
         # Queue for background processing
         self._extraction_queue: queue.Queue[tuple[str, str]] = queue.Queue()
@@ -258,7 +262,7 @@ Return only valid JSON, no explanation. Return empty object {{}} if no personal 
     
     def clear(self) -> None:
         """Clear all stored entities."""
-        self.user = UserEntity()
+        self.user = UserEntity(user_id=self.user_id)  # v2.1+: Preserve user_id
         self._save()
         logger.info("EntityMemory cleared")
     
@@ -273,12 +277,13 @@ Return only valid JSON, no explanation. Return empty object {{}} if no personal 
         """Persist entity data to disk."""
         if not self.persist_path:
             return
-        
+
         try:
             self.persist_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             data = {
                 "name": self.user.name,
+                "user_id": self.user.user_id,  # v2.1+: Store user_id
                 "attributes": self.user.attributes,
                 "relationships": self.user.relationships,
                 "facts": self.user.facts,
@@ -299,18 +304,32 @@ Return only valid JSON, no explanation. Return empty object {{}} if no personal 
         try:
             with open(self.persist_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            
+
+            loaded_user_id = data.get("user_id")
+
+            # v2.1+: Multi-user isolation check
+            if self.user_id is not None:
+                # If we have a user_id, only load if it matches
+                if loaded_user_id != self.user_id:
+                    logger.info(f"EntityMemory: Loaded data for different user "
+                               f"({loaded_user_id} != {self.user_id}), starting fresh")
+                    self.user = UserEntity(user_id=self.user_id)
+                    return
+
             self.user = UserEntity(
                 name=data.get("name"),
+                user_id=loaded_user_id,  # v2.1+: Load user_id
                 attributes=data.get("attributes", {}),
                 relationships=data.get("relationships", {}),
                 facts=data.get("facts", []),
                 last_updated=data.get("last_updated", time.time()),
             )
-            
+
             logger.info(f"EntityMemory: Loaded {len(self.user.attributes)} attributes, "
                        f"{len(self.user.relationships)} relationships, {len(self.user.facts)} facts")
-            
+            if self.user_id:
+                logger.debug(f"EntityMemory: Loaded for user_id: {self.user_id}")
+
         except Exception as e:
             logger.warning(f"EntityMemory: Failed to load: {e}")
     

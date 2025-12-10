@@ -24,6 +24,7 @@ class ConversationTurn(BaseModel):
     assistant_response: str
     timestamp: float
     conversation_id: Optional[str] = None
+    user_id: Optional[str] = None  # v2.1+: User who created this turn
 
     def to_dict(self) -> Dict[str, str]:
         """Convert to dictionary for storage."""
@@ -32,6 +33,7 @@ class ConversationTurn(BaseModel):
             "assistant_response": self.assistant_response,
             "timestamp": self.timestamp,
             "conversation_id": self.conversation_id,
+            "user_id": self.user_id,
         }
 
     @classmethod
@@ -42,6 +44,7 @@ class ConversationTurn(BaseModel):
             assistant_response=data["assistant_response"],
             timestamp=float(data["timestamp"]),
             conversation_id=data.get("conversation_id"),
+            user_id=data.get("user_id"),
         )
 
 
@@ -72,6 +75,7 @@ Summary (be concise):'''
         persist_path: Optional[Path] = None,
         persist_interval: float = 30.0,  # Save every 30 seconds
         llm_summarizer: Optional[Callable[[str], str]] = None,
+        user_id: Optional[str] = None,  # v2.1+: User ID for multi-user isolation
     ):
         """
         Initialize conversation memory.
@@ -81,11 +85,13 @@ Summary (be concise):'''
             persist_path: Path to save/load conversation history
             persist_interval: How often to persist to disk (seconds)
             llm_summarizer: Optional function to call LLM for summarization
+            user_id: User ID for multi-user isolation (v2.1+, optional for backward compat)
         """
         self.max_turns = max_turns
         self.persist_path = persist_path
         self.persist_interval = persist_interval
         self.llm_summarizer = llm_summarizer
+        self.user_id = user_id  # v2.1+: Filter conversations by this user
         
         # Cached summary of older conversations (updated in background)
         self._cached_summary: Optional[str] = None
@@ -106,7 +112,13 @@ Summary (be concise):'''
 
         logger.info(f"ConversationMemory initialized with max {max_turns} turns")
 
-    def add_turn(self, user_input: str, assistant_response: str, conversation_id: Optional[str] = None) -> None:
+    def add_turn(
+        self,
+        user_input: str,
+        assistant_response: str,
+        conversation_id: Optional[str] = None,
+        user_id: Optional[str] = None,  # v2.1+: Override instance user_id if provided
+    ) -> None:
         """
         Add a new conversation turn.
 
@@ -114,12 +126,17 @@ Summary (be concise):'''
             user_input: User's input text
             assistant_response: Assistant's response text
             conversation_id: Optional conversation identifier
+            user_id: User ID for this turn (v2.1+, overrides instance user_id if provided)
         """
+        # Use provided user_id if given, otherwise fall back to instance user_id
+        turn_user_id = user_id if user_id is not None else self.user_id
+
         turn = ConversationTurn(
             user_input=user_input.strip(),
             assistant_response=assistant_response.strip(),
             timestamp=time.time(),
             conversation_id=conversation_id,
+            user_id=turn_user_id,  # v2.1+: Tag turn with user_id
         )
 
         self._turns.append(turn)
@@ -350,7 +367,8 @@ Summary (be concise):'''
                     "metadata": {
                         "max_turns": self.max_turns,
                         "created_at": time.time(),
-                        "total_turns": len(self._turns)
+                        "total_turns": len(self._turns),
+                        "user_id": self.user_id,  # v2.1+: Store user_id in metadata
                     }
                 }
 
@@ -382,11 +400,25 @@ Summary (be concise):'''
                 data = json.load(f)
 
             turns_data = data.get("turns", [])
+            loaded_count = 0
+
             for turn_data in turns_data:
                 turn = ConversationTurn.from_dict(turn_data)
-                self._turns.append(turn)
 
-            logger.info(f"Loaded {len(self._turns)} conversation turns from {self.persist_path}")
+                # v2.1+: Filter by user_id if set (multi-user isolation)
+                if self.user_id is not None:
+                    # Only load turns that belong to this user
+                    if turn.user_id == self.user_id:
+                        self._turns.append(turn)
+                        loaded_count += 1
+                else:
+                    # Backward compatibility: load all turns if no user_id set
+                    self._turns.append(turn)
+                    loaded_count += 1
+
+            logger.info(f"Loaded {loaded_count} conversation turns from {self.persist_path}")
+            if self.user_id:
+                logger.debug(f"Filtered for user_id: {self.user_id}")
 
         except Exception as e:
             logger.error(f"Failed to load conversation memory: {e}")

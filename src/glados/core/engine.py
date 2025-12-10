@@ -264,37 +264,47 @@ class Glados:
         self.conversation_memory: ConversationMemory | None = None
         self.entity_memory: EntityMemory | None = None
         self.combined_memory: CombinedMemory | None = None
-        
+
         if config and config.memory.enabled:
             # Set up persistence paths
             conv_persist_path = Path(config.memory.persist_path) if config.memory.persist_path else Path("data/conversation_memory.json")
             entity_persist_path = Path(config.memory.entity_persist_path) if config.memory.entity_persist_path else Path("data/entity_memory.json")
-            
+
             # Create LLM caller for async extraction (uses same endpoint as main LLM)
             llm_caller = self._create_llm_caller() if config.memory.entity_extraction_enabled else None
-            
+
+            # v2.1+: Get user_id from connection context if using network audio with auth
+            user_id = None
+            if hasattr(self.audio_io, 'get_connection_context'):
+                conn_context = self.audio_io.get_connection_context()
+                if conn_context:
+                    user_id = conn_context.user_id
+                    logger.info(f"Multi-user memory enabled for user: {user_id}")
+
             # Initialize conversation memory
             self.conversation_memory = ConversationMemory(
                 max_turns=config.memory.max_turns,
                 persist_path=conv_persist_path,
                 persist_interval=config.memory.persist_interval_seconds,
                 llm_summarizer=llm_caller,  # For async summarization
+                user_id=user_id,  # v2.1+: Multi-user isolation
             )
-            
+
             # Initialize entity memory if enabled
             if config.memory.entity_extraction_enabled:
                 self.entity_memory = EntityMemory(
                     persist_path=entity_persist_path,
                     llm_caller=llm_caller,
+                    user_id=user_id,  # v2.1+: Multi-user isolation
                 )
                 logger.info("Entity memory initialized with async LLM extraction")
-            
+
             # Create combined memory interface
             self.combined_memory = CombinedMemory(
                 conversation_memory=self.conversation_memory,
                 entity_memory=self.entity_memory,
             )
-            
+
             logger.info(f"Memory system initialized: {config.memory.max_turns} max turns, entity extraction: {config.memory.entity_extraction_enabled}")
 
         # Initialize threads for each component
@@ -328,6 +338,7 @@ class Glados:
             repeat_penalty=config.repeat_penalty if config else 1.15,
             top_p=config.top_p if config else 0.9,
             top_k=config.top_k if config else 40,
+            audio_io=self.audio_io,  # v2.1+: For getting connection context (user_id)
         )
 
         self.tts_synthesizer = TextToSpeechSynthesizer(

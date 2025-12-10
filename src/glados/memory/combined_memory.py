@@ -63,20 +63,26 @@ class CombinedMemory:
         if self.entities:
             self.entities.set_idle()
     
-    def add_exchange(self, user_input: str, assistant_response: str) -> None:
+    def add_exchange(
+        self,
+        user_input: str,
+        assistant_response: str,
+        user_id: Optional[str] = None,  # v2.1+: User ID for multi-user isolation
+    ) -> None:
         """
         Record a conversation exchange.
-        
+
         - Stores in conversation memory (instant)
         - Queues for entity extraction (non-blocking)
-        
+
         Args:
             user_input: What the user said
             assistant_response: What the assistant replied
+            user_id: User ID for this exchange (v2.1+, for multi-user isolation)
         """
         # Store in conversation memory (instant, O(1))
-        self.conversation.add_turn(user_input, assistant_response)
-        
+        self.conversation.add_turn(user_input, assistant_response, user_id=user_id)
+
         # Queue for background entity extraction (non-blocking)
         if self.entities:
             self.entities.queue_extraction(user_input, assistant_response)
@@ -160,16 +166,18 @@ def create_combined_memory(
     persist_dir: Optional[Path] = None,
     llm_caller: Optional[Callable[[str], str]] = None,
     enable_entities: bool = True,
+    user_id: Optional[str] = None,  # v2.1+: User ID for multi-user isolation
 ) -> CombinedMemory:
     """
     Factory function to create a fully configured CombinedMemory.
-    
+
     Args:
         max_turns: Maximum conversation turns to keep
         persist_dir: Directory for persistence (None = no persistence)
         llm_caller: Function to call LLM for entity extraction
         enable_entities: Whether to enable entity extraction
-        
+        user_id: User ID for multi-user isolation (v2.1+, optional for backward compat)
+
     Returns:
         Configured CombinedMemory instance
     """
@@ -179,8 +187,9 @@ def create_combined_memory(
         max_turns=max_turns,
         persist_path=conv_persist,
         persist_interval=30.0,
+        user_id=user_id,  # v2.1+: Pass user_id
     )
-    
+
     # Create entity memory if enabled
     entity_memory = None
     if enable_entities:
@@ -188,8 +197,9 @@ def create_combined_memory(
         entity_memory = EntityMemory(
             persist_path=entity_persist,
             llm_caller=llm_caller,
+            user_id=user_id,  # v2.1+: Pass user_id
         )
-    
+
     return CombinedMemory(
         conversation_memory=conversation,
         entity_memory=entity_memory,

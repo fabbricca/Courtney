@@ -18,6 +18,7 @@ VENV_DIR="$PROJECT_ROOT/.venv"
 SERVER_HOST="${SERVER_HOST:-localhost}"
 SERVER_PORT="${SERVER_PORT:-5555}"
 MIC_MUTED="${MIC_MUTED:-false}"
+USE_LEGACY="${USE_LEGACY:-false}"
 
 cd "$PROJECT_ROOT"
 
@@ -98,6 +99,20 @@ check_client_deps() {
         pip install numpy -q
     fi
 
+    # Check for textual (for TUI mode)
+    if [ "$USE_LEGACY" != "true" ]; then
+        if ! python3 -c "import textual" 2>/dev/null; then
+            print_warning "textual not installed (required for modern TUI)"
+            print_step "Installing textual..."
+            pip install textual rich -q
+
+            if ! python3 -c "import textual" 2>/dev/null; then
+                print_warning "Failed to install textual, falling back to legacy client"
+                USE_LEGACY="true"
+            fi
+        fi
+    fi
+
     print_success "Client dependencies OK"
 }
 
@@ -146,8 +161,16 @@ EOF
 start_client() {
     print_header "Starting GLaDOS Client"
 
+    # Choose client based on mode
+    if [ "$USE_LEGACY" == "true" ]; then
+        CLIENT_SCRIPT="network/glados_terminal_client.py"
+        CLIENT_NAME="GLaDOS Legacy Terminal Client"
+    else
+        CLIENT_SCRIPT="network/glados_textual_client.py"
+        CLIENT_NAME="GLaDOS Modern TUI Client"
+    fi
+
     # Check if client script exists
-    CLIENT_SCRIPT="network/glados_terminal_client.py"
     if [ ! -f "$CLIENT_SCRIPT" ]; then
         print_error "Client script not found: $CLIENT_SCRIPT"
         exit 1
@@ -158,24 +181,30 @@ start_client() {
     # Build command
     CMD="python3 $CLIENT_SCRIPT --server $SERVER_HOST:$SERVER_PORT"
 
-    if [ "$MIC_MUTED" == "true" ]; then
+    # Legacy client supports --muted flag
+    if [ "$MIC_MUTED" == "true" ] && [ "$USE_LEGACY" == "true" ]; then
         print_warning "Microphone will be muted (text-only mode)"
         CMD="$CMD --muted"
     fi
 
-    print_success "Starting client..."
-    echo ""
-    echo -e "${BLUE}============================================================${NC}"
-    echo -e "${BLUE}  GLaDOS Terminal Client${NC}"
-    echo -e "${BLUE}============================================================${NC}"
-    echo ""
-    echo "Controls:"
-    echo "  - Type and press Enter to send text"
-    echo "  - Speak if microphone is enabled"
-    echo "  - Press Ctrl+C to exit"
-    echo ""
-    echo "Connecting..."
-    echo ""
+    if [ "$USE_LEGACY" != "true" ]; then
+        print_success "Starting modern TUI (Textual-based)..."
+        print_step "Press Ctrl+C to exit"
+    else
+        print_success "Starting legacy client..."
+        echo ""
+        echo -e "${BLUE}============================================================${NC}"
+        echo -e "${BLUE}  $CLIENT_NAME${NC}"
+        echo -e "${BLUE}============================================================${NC}"
+        echo ""
+        echo "Controls:"
+        echo "  - Type and press Enter to send text"
+        echo "  - Speak if microphone is enabled"
+        echo "  - Press Ctrl+C to exit"
+        echo ""
+        echo "Connecting..."
+        echo ""
+    fi
 
     # Execute client
     exec $CMD
@@ -186,23 +215,33 @@ show_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Start the GLaDOS terminal client.
+Start the GLaDOS client (modern TUI by default).
 
 Options:
   --server HOST:PORT  Server address (default: $SERVER_HOST:$SERVER_PORT)
-  --muted             Start with microphone muted (text-only)
+  --muted             Start with microphone muted (text-only, legacy only)
+  --legacy            Use legacy terminal client instead of TUI
   --help              Show this help message
 
 Environment Variables:
   SERVER_HOST         Server hostname (default: localhost)
   SERVER_PORT         Server port (default: 5555)
-  MIC_MUTED           Set to 'true' for text-only mode
+  MIC_MUTED           Set to 'true' for text-only mode (legacy only)
+  USE_LEGACY          Set to 'true' to use legacy client
 
 Examples:
-  $0                                # Connect to localhost:5555
+  $0                                # Modern TUI client
   $0 --server 192.168.1.100:5555    # Connect to remote server
-  $0 --muted                        # Text-only mode
-  SERVER_HOST=glados.local $0       # Use environment variable
+  $0 --legacy                       # Use legacy client
+  $0 --legacy --muted               # Legacy client, text-only
+  USE_LEGACY=true $0                # Use environment variable
+
+TUI Features:
+  - Beautiful split-pane interface
+  - Keyboard shortcuts (Ctrl+W: delete word, Ctrl+L: clear)
+  - Message history (Up/Down arrows)
+  - No message duplication
+  - Real-time status indicators
 
 EOF
 }
@@ -221,6 +260,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --muted)
             MIC_MUTED="true"
+            shift
+            ;;
+        --legacy)
+            USE_LEGACY="true"
             shift
             ;;
         --help)

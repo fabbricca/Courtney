@@ -49,6 +49,7 @@ class LanguageModelProcessor:
         repeat_penalty: float = 1.15,
         top_p: float = 0.9,
         top_k: int = 40,
+        audio_io: Optional[Any] = None,  # v2.1+: For getting connection context (user_id)
     ) -> None:
         self.llm_input_queue = llm_input_queue
         self.tts_input_queue = tts_input_queue
@@ -61,6 +62,7 @@ class LanguageModelProcessor:
         self.pause_time = pause_time
         self.conversation_memory = conversation_memory
         self.combined_memory = combined_memory
+        self.audio_io = audio_io  # v2.1+: For multi-user support
 
         # LLM sampling parameters to reduce repetition
         self.temperature = temperature
@@ -333,12 +335,23 @@ class LanguageModelProcessor:
                             # Note: conversation_history is updated by speech_player when EOS is processed
                             # to ensure it only includes actually spoken content
                             
+                            # v2.1+: Get user_id from connection context if available
+                            user_id = None
+                            if self.audio_io and hasattr(self.audio_io, 'get_connection_context'):
+                                try:
+                                    conn_context = self.audio_io.get_connection_context()
+                                    if conn_context:
+                                        user_id = conn_context.user_id
+                                except Exception:
+                                    pass  # Connection context not available, continue without user_id
+
                             # Use combined memory if available (handles both conversation + entity extraction)
                             if self.combined_memory:
                                 try:
                                     self.combined_memory.add_exchange(
                                         user_input=detected_text,
                                         assistant_response=full_assistant_response,
+                                        user_id=user_id,  # v2.1+: Pass user_id for multi-user isolation
                                     )
                                     logger.debug("LLM Processor: Stored exchange in combined memory")
                                 except Exception as e:
@@ -349,7 +362,8 @@ class LanguageModelProcessor:
                                     self.conversation_memory.add_turn(
                                         user_input=detected_text,
                                         assistant_response=full_assistant_response,
-                                        conversation_id="default"
+                                        conversation_id="default",
+                                        user_id=user_id,  # v2.1+: Pass user_id for multi-user isolation
                                     )
                                     logger.debug("LLM Processor: Stored conversation turn in memory")
                                 except Exception as e:

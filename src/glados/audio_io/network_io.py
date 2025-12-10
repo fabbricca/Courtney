@@ -10,6 +10,10 @@ The protocol is simple binary TCP:
 - Client → Server: Text messages: [0xFFFFFFFF][length][utf-8 text]
 - Server → Client: TTS audio chunks (variable size, prefixed with length)
 - Server → Client: Text messages: [0xFFFFFFFE][length][utf-8 text]
+
+With authentication enabled (v2.1+):
+- Client → Server: [AUTH_REQUEST][length][jwt_token] (first, on connect)
+- Server → Client: [AUTH_RESPONSE_SUCCESS][user_id] or [AUTH_RESPONSE_FAILURE][error]
 """
 
 import queue
@@ -24,6 +28,15 @@ import numpy as np
 from numpy.typing import NDArray
 
 from . import VAD
+
+# Optional authentication support (v2.1+)
+try:
+    from ..auth import AuthenticationMiddleware, ConnectionContext
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+    AuthenticationMiddleware = None  # type: ignore
+    ConnectionContext = None  # type: ignore
 
 
 # Protocol markers
@@ -53,6 +66,7 @@ class NetworkAudioIO:
         host: str = "0.0.0.0",
         port: int = 5555,
         vad_threshold: float | None = None,
+        auth_middleware: Optional["AuthenticationMiddleware"] = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -61,19 +75,23 @@ class NetworkAudioIO:
         self._vad_model = VAD()
         self._sample_queue: queue.Queue[tuple[NDArray[np.float32], bool]] = queue.Queue()
         self._text_message_queue: queue.Queue[str] = queue.Queue()  # For text messages from client
-        
+
         self._server_socket: Optional[socket.socket] = None
         self._client_socket: Optional[socket.socket] = None
         self._client_addr = None
         self._client_connected = False
-        
+
         self._is_playing = False
         self._stop_speaking_event = threading.Event()
         self._shutdown_event = threading.Event()
-        
+
         self._listen_thread: Optional[threading.Thread] = None
         self._keepalive_thread: Optional[threading.Thread] = None
         self._playback_lock = threading.Lock()
+
+        # Authentication (v2.1+)
+        self._auth_middleware = auth_middleware
+        self._connection_context: Optional["ConnectionContext"] = None
 
     def start_listening(self) -> None:
         """Start the TCP server and wait for client connection."""
@@ -128,7 +146,34 @@ class NetworkAudioIO:
             
             if self._shutdown_event.is_set():
                 return
-            
+
+            # ========================================================================
+            # AUTHENTICATION (v2.1+)
+            # ========================================================================
+            # Perform authentication handshake before processing audio/text
+            if self._auth_middleware:
+                logger.info("Performing authentication handshake...")
+                self._connection_context = self._auth_middleware.authenticate_connection(
+                    self._client_socket
+                )
+
+                if not self._connection_context:
+                    logger.warning("Authentication failed, closing connection")
+                    self._client_connected = False
+                    if self._client_socket:
+                        try:
+                            self._client_socket.close()
+                        except:
+                            pass
+                        self._client_socket = None
+                    continue  # Go back to waiting for new client
+
+                logger.success(f"Authenticated as: {self._connection_context.username}")
+            else:
+                logger.debug("Authentication disabled, allowing unauthenticated connection")
+                self._connection_context = None
+            # ========================================================================
+
             # Receive audio chunks and text messages
             buffer = b""
             chunk_size = self.CHUNK_SAMPLES * 2  # int16 = 2 bytes
@@ -198,13 +243,14 @@ class NetworkAudioIO:
             # Cleanup after disconnect - loop back to accept new client
             logger.warning("Client disconnected - cleaning up socket")
             self._client_connected = False
+            self._connection_context = None  # Reset auth context
             if self._client_socket:
                 try:
                     self._client_socket.close()
                 except:
                     pass
                 self._client_socket = None
-            
+
             logger.info("Ready for new client connection")
 
     def stop_listening(self) -> None:
@@ -336,13 +382,27 @@ class NetworkAudioIO:
         """Send user's transcribed speech back to the client for display."""
         if not self._client_connected or self._client_socket is None:
             return
-        
+
         text_bytes = text.encode('utf-8')
         # Protocol: [0xFFFFFFFD][length][utf-8 text]
         header = struct.pack("<II", USER_TRANSCRIPTION_TO_CLIENT, len(text_bytes))
-        
+
         try:
             with self._playback_lock:
                 self._client_socket.sendall(header + text_bytes)
         except (OSError, BrokenPipeError) as e:
             logger.error(f"Failed to send user transcription: {e}")
+
+    def get_connection_context(self) -> Optional["ConnectionContext"]:
+        """
+        Get the current connection's authentication context.
+
+        Returns:
+            ConnectionContext with user info and permissions, or None if:
+            - No client connected
+            - Authentication disabled
+            - Not yet authenticated
+
+        Use this to access user_id for memory isolation and permissions for RBAC.
+        """
+        return self._connection_context
