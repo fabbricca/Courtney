@@ -241,10 +241,18 @@ class GLaDOSTUI(App):
         ("ctrl+q", "quit", "Quit"),
     ]
 
-    def __init__(self, server_host: str, server_port: int):
+    def __init__(
+        self,
+        server_host: str,
+        server_port: int,
+        auth_token: Optional[str] = None,
+        auth_token_file: Optional[Path] = None,
+    ):
         super().__init__()
         self.server_host = server_host
         self.server_port = server_port
+        self.auth_token = auth_token
+        self.auth_token_file = auth_token_file
         self.client: GLaDOSNetworkClient = None
         self.title = "GLaDOS v2.1 - Modern TUI"
         self._shutting_down = False
@@ -281,6 +289,8 @@ class GLaDOSTUI(App):
             on_assistant_text=self.on_assistant_text,
             on_connection_status=self.on_connection_status,
             on_mic_status=self.on_mic_status,
+            auth_token=self.auth_token,
+            auth_token_file=self.auth_token_file,
         )
 
         # Connect to server
@@ -396,6 +406,18 @@ def main():
         default="localhost:5555",
         help="Server address (host:port)"
     )
+    parser.add_argument(
+        "--auth-token",
+        type=str,
+        default=None,
+        help="JWT authentication token (optional, v2.1+)",
+    )
+    parser.add_argument(
+        "--auth-token-file",
+        type=str,
+        default=None,
+        help="Path to file containing JWT token (optional, v2.1+)",
+    )
     args = parser.parse_args()
 
     # Parse server address
@@ -406,8 +428,16 @@ def main():
         host = args.server
         port = 5555
 
+    # Convert auth_token_file to Path if provided
+    auth_token_file = Path(args.auth_token_file) if args.auth_token_file else None
+
     # Run TUI
-    app = GLaDOSTUI(host, port)
+    app = GLaDOSTUI(
+        server_host=host,
+        server_port=port,
+        auth_token=args.auth_token,
+        auth_token_file=auth_token_file,
+    )
     app.run()
 
 

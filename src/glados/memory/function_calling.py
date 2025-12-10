@@ -3,6 +3,8 @@ Function calling utilities for GLaDOS memory and task management.
 
 This module provides tools for LLM function calling integration,
 allowing GLaDOS to execute tasks based on user requests.
+
+v2.1+: Includes RBAC permission checking for function calls
 """
 
 import json
@@ -10,10 +12,22 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from dateutil import parser as date_parser
+from loguru import logger
 from pydantic import BaseModel
 
 from .memory_manager import MemoryManager
 from .models import TaskItem, TaskType
+
+# Import permission checking (optional - for RBAC)
+try:
+    from ..auth.permissions import (
+        check_function_permission,
+        PermissionDeniedError,
+    )
+    RBAC_AVAILABLE = True
+except ImportError:
+    RBAC_AVAILABLE = False
+    logger.warning("RBAC permissions not available - function calls will not be restricted")
 
 
 class FunctionCall(BaseModel):
@@ -30,11 +44,30 @@ class FunctionResult(BaseModel):
 
 
 class FunctionRegistry:
-    """Registry of available functions for LLM function calling."""
+    """
+    Registry of available functions for LLM function calling.
 
-    def __init__(self, memory_manager: MemoryManager):
+    v2.1+: Includes RBAC permission checking for function calls
+    """
+
+    def __init__(
+        self,
+        memory_manager: MemoryManager,
+        user_id: Optional[str] = None,
+        user_role: Optional[str] = None,
+    ):
+        """
+        Initialize function registry.
+
+        Args:
+            memory_manager: Memory manager for task/memory operations
+            user_id: User ID for permission checking (v2.1+, optional)
+            user_role: User role for permission checking (v2.1+, optional)
+        """
         self.memory_manager = memory_manager
         self.functions: Dict[str, Callable] = {}
+        self.user_id = user_id
+        self.user_role = user_role
 
         # Register built-in functions
         self._register_builtin_functions()
@@ -158,7 +191,17 @@ class FunctionRegistry:
         return schemas
 
     def execute_function(self, function_call: FunctionCall) -> FunctionResult:
-        """Execute a function call and return the result."""
+        """
+        Execute a function call and return the result.
+
+        v2.1+: Checks RBAC permissions before executing
+
+        Args:
+            function_call: The function call to execute
+
+        Returns:
+            FunctionResult with success status and result/error message
+        """
         try:
             if function_call.name not in self.functions:
                 return FunctionResult(
@@ -167,8 +210,23 @@ class FunctionRegistry:
                     message=f"Unknown function: {function_call.name}"
                 )
 
+            # v2.1+: Check permissions if RBAC is available and user_role is set
+            if RBAC_AVAILABLE and self.user_role:
+                if not check_function_permission(self.user_role, function_call.name):
+                    logger.warning(
+                        f"Permission denied: user {self.user_id} (role: {self.user_role}) "
+                        f"attempted to call {function_call.name}"
+                    )
+                    return FunctionResult(
+                        success=False,
+                        result=None,
+                        message=f"Permission denied: You don't have access to {function_call.name}"
+                    )
+
             func = self.functions[function_call.name]
             result = func(**function_call.arguments)
+
+            logger.info(f"Function call executed: {function_call.name} by user {self.user_id}")
 
             return FunctionResult(
                 success=True,
@@ -177,6 +235,7 @@ class FunctionRegistry:
             )
 
         except Exception as e:
+            logger.error(f"Error executing {function_call.name}: {str(e)}")
             return FunctionResult(
                 success=False,
                 result=None,

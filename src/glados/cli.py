@@ -215,20 +215,40 @@ def start(config_path: str | Path = "glados_config.yaml") -> None:
     glados.run()
 
 
-def tui(config_path: str | Path = "glados_config.yaml") -> None:
+def tui(
+    host: str = "localhost",
+    port: int = 5555,
+    auth_token: str | None = None,
+    auth_token_file: str | None = None,
+) -> None:
     """
-    Start the GLaDOS voice assistant with a terminal user interface (TUI).
+    Start the GLaDOS TUI client to connect to a remote GLaDOS server.
 
-    This function initializes the GLaDOS TUI application, which provides decorative
-    interface elements for voice interactions.
+    This function initializes the GLaDOS TUI application, which provides a rich
+    terminal interface for interacting with a GLaDOS server over the network.
+
+    Parameters:
+        host (str): Server hostname (default: localhost)
+        port (int): Server port (default: 5555)
+        auth_token (str | None): JWT authentication token (optional, v2.1+)
+        auth_token_file (str | None): Path to file containing JWT token (optional, v2.1+)
     """
-
     import sys
+    from pathlib import Path
 
-    import glados.tui as tui
+    # Import network TUI client
+    from network.glados_textual_client import GLaDOSTUI
 
     try:
-        app = tui.GladosUI()
+        # Convert auth_token_file to Path if provided
+        token_file_path = Path(auth_token_file) if auth_token_file else None
+
+        app = GLaDOSTUI(
+            server_host=host,
+            server_port=port,
+            auth_token=auth_token,
+            auth_token_file=token_file_path,
+        )
         app.run()
     except KeyboardInterrupt:
         sys.exit()
@@ -270,6 +290,30 @@ def main() -> int:
 
     # TUI command
     tui_parser = subparsers.add_parser("tui", help="Start GLaDOS voice assistant with TUI")
+    tui_parser.add_argument(
+        "--host",
+        type=str,
+        default="localhost",
+        help="Server hostname (default: localhost)",
+    )
+    tui_parser.add_argument(
+        "--port",
+        type=int,
+        default=5555,
+        help="Server port (default: 5555)",
+    )
+    tui_parser.add_argument(
+        "--auth-token",
+        type=str,
+        default=None,
+        help="JWT authentication token (optional, v2.1+)",
+    )
+    tui_parser.add_argument(
+        "--auth-token-file",
+        type=str,
+        default=None,
+        help="Path to file containing JWT token (optional, v2.1+)",
+    )
 
     # Say command
     say_parser = subparsers.add_parser("say", help="Make GLaDOS speak text")
@@ -294,7 +338,12 @@ def main() -> int:
         elif args.command == "start":
             start(args.config)
         elif args.command == "tui":
-            tui()
+            tui(
+                host=args.host,
+                port=args.port,
+                auth_token=args.auth_token,
+                auth_token_file=args.auth_token_file,
+            )
         else:
             # Default to start if no command specified
             start(DEFAULT_CONFIG)

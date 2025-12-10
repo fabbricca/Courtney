@@ -21,7 +21,8 @@ class User:
         password_hash: Bcrypt hashed password
         created_at: Account creation timestamp
         is_active: Whether account is active
-        is_admin: Whether user has admin privileges
+        is_admin: Whether user has admin privileges (deprecated, use role)
+        role: User role for RBAC (admin/user/guest/restricted) (v2.1+)
     """
     user_id: str
     username: str
@@ -29,7 +30,8 @@ class User:
     password_hash: str
     created_at: datetime
     is_active: bool = True
-    is_admin: bool = False
+    is_admin: bool = False  # Deprecated: Use role field instead
+    role: str = "user"  # v2.1+: RBAC role (admin/user/guest/restricted)
 
 
 @dataclass

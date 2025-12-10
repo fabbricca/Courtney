@@ -54,9 +54,20 @@ class UserDatabase:
                     password_hash TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     is_active INTEGER DEFAULT 1,
-                    is_admin INTEGER DEFAULT 0
+                    is_admin INTEGER DEFAULT 0,
+                    role TEXT DEFAULT 'user'
                 )
             """)
+
+            # Migration: Add role column if it doesn't exist (v2.1+)
+            try:
+                cursor.execute("SELECT role FROM users LIMIT 1")
+            except sqlite3.OperationalError:
+                # Column doesn't exist, add it
+                cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+                # Set admin role for existing admin users
+                cursor.execute("UPDATE users SET role = 'admin' WHERE is_admin = 1")
+                logger.info("Migrated database: Added role column to users table")
 
             # Roles table
             cursor.execute("""
@@ -133,7 +144,8 @@ class UserDatabase:
         username: str,
         email: str,
         password: str,
-        is_admin: bool = False
+        is_admin: bool = False,
+        role: str = "user"
     ) -> User:
         """
         Create new user with hashed password.
@@ -142,7 +154,8 @@ class UserDatabase:
             username: Unique username
             email: User email
             password: Plain text password (will be hashed)
-            is_admin: Whether user has admin privileges
+            is_admin: Whether user has admin privileges (deprecated, use role)
+            role: User role for RBAC (admin/user/guest/restricted) (v2.1+)
 
         Returns:
             Created User object
@@ -161,6 +174,10 @@ class UserDatabase:
                 bcrypt.gensalt()
             ).decode('utf-8')
 
+            # If is_admin is True but role is default, set role to admin
+            if is_admin and role == "user":
+                role = "admin"
+
             user = User(
                 user_id=str(uuid.uuid4()),
                 username=username,
@@ -168,15 +185,16 @@ class UserDatabase:
                 password_hash=password_hash,
                 created_at=datetime.now(),
                 is_active=True,
-                is_admin=is_admin
+                is_admin=is_admin,
+                role=role
             )
 
             conn = sqlite3.connect(str(self.db_path))
             cursor = conn.cursor()
 
             cursor.execute("""
-                INSERT INTO users (user_id, username, email, password_hash, created_at, is_active, is_admin)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (user_id, username, email, password_hash, created_at, is_active, is_admin, role)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 user.user_id,
                 user.username,
@@ -184,13 +202,14 @@ class UserDatabase:
                 user.password_hash,
                 user.created_at.isoformat(),
                 1 if user.is_active else 0,
-                1 if user.is_admin else 0
+                1 if user.is_admin else 0,
+                user.role
             ))
 
             conn.commit()
             conn.close()
 
-            logger.info(f"User created: {username} ({user.user_id})")
+            logger.info(f"User created: {username} ({user.user_id}) with role: {role}")
             return user
 
     def get_user_by_username(self, username: str) -> Optional[User]:
@@ -221,7 +240,8 @@ class UserDatabase:
                 password_hash=row[3],
                 created_at=datetime.fromisoformat(row[4]),
                 is_active=bool(row[5]),
-                is_admin=bool(row[6])
+                is_admin=bool(row[6]),
+                role=row[7] if len(row) > 7 else "user"  # v2.1+: RBAC role
             )
 
     def get_user_by_id(self, user_id: str) -> Optional[User]:
@@ -252,7 +272,8 @@ class UserDatabase:
                 password_hash=row[3],
                 created_at=datetime.fromisoformat(row[4]),
                 is_active=bool(row[5]),
-                is_admin=bool(row[6])
+                is_admin=bool(row[6]),
+                role=row[7] if len(row) > 7 else "user"  # v2.1+: RBAC role
             )
 
     def verify_password(self, user: User, password: str) -> bool:

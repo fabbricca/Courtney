@@ -1,6 +1,7 @@
 #!/bin/bash
 # GLaDOS Client Start Script
 # Terminal client with voice and text input support
+# v2.1+: JWT authentication support
 
 set -e
 
@@ -19,6 +20,8 @@ SERVER_HOST="${SERVER_HOST:-localhost}"
 SERVER_PORT="${SERVER_PORT:-5555}"
 MIC_MUTED="${MIC_MUTED:-false}"
 USE_LEGACY="${USE_LEGACY:-false}"
+AUTH_TOKEN="${AUTH_TOKEN:-}"
+AUTH_TOKEN_FILE="${AUTH_TOKEN_FILE:-}"
 
 cd "$PROJECT_ROOT"
 
@@ -181,6 +184,20 @@ start_client() {
     # Build command
     CMD="python3 $CLIENT_SCRIPT --server $SERVER_HOST:$SERVER_PORT"
 
+    # Add authentication if provided (v2.1+)
+    if [ -n "$AUTH_TOKEN" ]; then
+        print_step "Using JWT authentication token"
+        CMD="$CMD --auth-token \"$AUTH_TOKEN\""
+    elif [ -n "$AUTH_TOKEN_FILE" ]; then
+        if [ -f "$AUTH_TOKEN_FILE" ]; then
+            print_step "Using JWT token from file: $AUTH_TOKEN_FILE"
+            CMD="$CMD --auth-token-file \"$AUTH_TOKEN_FILE\""
+        else
+            print_error "Token file not found: $AUTH_TOKEN_FILE"
+            exit 1
+        fi
+    fi
+
     # Legacy client supports --muted flag
     if [ "$MIC_MUTED" == "true" ] && [ "$USE_LEGACY" == "true" ]; then
         print_warning "Microphone will be muted (text-only mode)"
@@ -218,30 +235,46 @@ Usage: $0 [OPTIONS]
 Start the GLaDOS client (modern TUI by default).
 
 Options:
-  --server HOST:PORT  Server address (default: $SERVER_HOST:$SERVER_PORT)
-  --muted             Start with microphone muted (text-only, legacy only)
-  --legacy            Use legacy terminal client instead of TUI
-  --help              Show this help message
+  --server HOST:PORT      Server address (default: $SERVER_HOST:$SERVER_PORT)
+  --auth-token TOKEN      JWT authentication token (v2.1+)
+  --auth-token-file PATH  Path to file containing JWT token (v2.1+)
+  --muted                 Start with microphone muted (text-only, legacy only)
+  --legacy                Use legacy terminal client instead of TUI
+  --help                  Show this help message
 
 Environment Variables:
   SERVER_HOST         Server hostname (default: localhost)
   SERVER_PORT         Server port (default: 5555)
+  AUTH_TOKEN          JWT authentication token
+  AUTH_TOKEN_FILE     Path to JWT token file (e.g., ~/.glados_token)
   MIC_MUTED           Set to 'true' for text-only mode (legacy only)
   USE_LEGACY          Set to 'true' to use legacy client
 
 Examples:
-  $0                                # Modern TUI client
-  $0 --server 192.168.1.100:5555    # Connect to remote server
-  $0 --legacy                       # Use legacy client
-  $0 --legacy --muted               # Legacy client, text-only
-  USE_LEGACY=true $0                # Use environment variable
+  # Basic usage
+  $0                                    # Modern TUI client (no auth)
+  $0 --server 192.168.1.100:5555        # Connect to remote server
+
+  # With authentication (v2.1+)
+  $0 --auth-token "eyJhbG..."           # Authenticate with JWT token
+  $0 --auth-token-file ~/.glados_token  # Token from file
+  AUTH_TOKEN_FILE=~/.glados_token $0    # Using environment variable
+
+  # Legacy client
+  $0 --legacy                           # Use legacy client
+  $0 --legacy --muted                   # Legacy client, text-only
 
 TUI Features:
   - Beautiful split-pane interface
+  - Real-time status indicators
   - Keyboard shortcuts (Ctrl+W: delete word, Ctrl+L: clear)
   - Message history (Up/Down arrows)
+  - Authentication support (v2.1+)
   - No message duplication
-  - Real-time status indicators
+
+Authentication (v2.1+):
+  If the server requires authentication, use --auth-token or --auth-token-file.
+  Get your token from an admin or use scripts/create_admin.py to create an account.
 
 EOF
 }
@@ -256,6 +289,14 @@ while [[ $# -gt 0 ]]; do
             else
                 SERVER_HOST="$2"
             fi
+            shift 2
+            ;;
+        --auth-token)
+            AUTH_TOKEN="$2"
+            shift 2
+            ;;
+        --auth-token-file)
+            AUTH_TOKEN_FILE="$2"
             shift 2
             ;;
         --muted)
