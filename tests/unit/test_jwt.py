@@ -6,7 +6,7 @@ Tests token creation, verification, and expiration.
 
 import pytest
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 try:
     from glados.auth.jwt_handler import JWTHandler, TokenPayload
@@ -168,17 +168,17 @@ def test_token_expiration_field(jwt_handler):
     payload = jwt_handler.verify_token(token)
 
     assert payload is not None
-    assert payload.exp > datetime.utcnow()
+    assert payload.exp > datetime.now(timezone.utc)
 
     # Should expire in approximately 1 hour
-    expected_exp = datetime.utcnow() + timedelta(minutes=60)
+    expected_exp = datetime.now(timezone.utc) + timedelta(minutes=60)
     time_diff = abs((payload.exp - expected_exp).total_seconds())
     assert time_diff < 60  # Within 1 minute tolerance
 
 
 def test_token_issued_at(jwt_handler):
     """Test that token has issued-at time set."""
-    before = datetime.utcnow()
+    before = datetime.now(timezone.utc)
 
     token = jwt_handler.create_access_token(
         user_id="user123",
@@ -188,7 +188,7 @@ def test_token_issued_at(jwt_handler):
         permissions=[]
     )
 
-    after = datetime.utcnow()
+    after = datetime.now(timezone.utc)
     payload = jwt_handler.verify_token(token)
 
     assert payload is not None

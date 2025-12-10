@@ -5,7 +5,7 @@ Handles creation and verification of JWT tokens for authentication.
 """
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
@@ -93,7 +93,7 @@ class JWTHandler:
         Returns:
             JWT token string
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
         payload = {
@@ -125,7 +125,7 @@ class JWTHandler:
         Returns:
             JWT refresh token string
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
         payload = {
@@ -168,8 +168,8 @@ class JWTHandler:
                 email=payload["email"],
                 roles=payload.get("roles", []),
                 permissions=payload.get("permissions", []),
-                exp=datetime.fromtimestamp(payload["exp"]),
-                iat=datetime.fromtimestamp(payload["iat"]),
+                exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
+                iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
                 jti=payload["jti"],
                 token_type=payload["type"]
             )
