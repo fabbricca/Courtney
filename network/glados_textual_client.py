@@ -13,7 +13,8 @@ import argparse
 import sys
 import threading
 from datetime import datetime
-from typing import List
+from pathlib import Path
+from typing import List, Optional
 
 try:
     from textual.app import App, ComposeResult

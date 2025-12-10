@@ -349,7 +349,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from glados import GladosConfig
 from glados.core.engine import Glados
 from glados.auth import UserManager, AuthenticationMiddleware
-from glados.audio_io import NetworkAudioIO
+from glados.audio_io.network_io import NetworkAudioIO
 from glados.ASR import get_audio_transcriber
 from glados.TTS import get_speech_synthesizer
 
