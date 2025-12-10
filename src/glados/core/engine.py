@@ -29,6 +29,7 @@ from .llm_processor import LanguageModelProcessor
 from .speech_listener import SpeechListener
 from .speech_player import SpeechPlayer
 from .tts_synthesizer import TextToSpeechSynthesizer
+from .state import ThreadSafeConversationState
 
 logger.remove(0)
 logger.add(sys.stderr, level="SUCCESS")
@@ -231,7 +232,10 @@ class Glados:
         self.interruptible = interruptible
         self.wake_word = wake_word
         self.announcement = announcement
-        self._messages: list[dict[str, str]] = list(personality_preprompt)
+
+        # Convert personality preprompt to initial messages
+        initial_messages = [msg for msg in personality_preprompt]
+        self._messages = ThreadSafeConversationState(initial_messages)
 
         # Initialize spoken text converter, that converts text to spoken text. eg. 12 -> "twelve"
         self._stc = stc.SpokenTextConverter()

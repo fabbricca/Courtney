@@ -12,6 +12,14 @@ import requests
 
 from ..memory.conversation_memory import ConversationMemory
 from ..memory.combined_memory import CombinedMemory
+from .exceptions import (
+    LLMConnectionError,
+    LLMTimeoutError,
+    LLMResponseError,
+    LLMStreamError,
+)
+from .state import ThreadSafeConversationState
+from .resilience import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
 
 
 class LanguageModelProcessor:
@@ -28,7 +36,7 @@ class LanguageModelProcessor:
         self,
         llm_input_queue: queue.Queue[str],
         tts_input_queue: queue.Queue[str],
-        conversation_history: list[dict[str, str]],  # Shared
+        conversation_history: ThreadSafeConversationState,
         completion_url: HttpUrl,
         model_name: str,  # Renamed from 'model' to avoid conflict
         api_key: str | None,
@@ -66,9 +74,19 @@ class LanguageModelProcessor:
         self.prompt_headers = {"Content-Type": "application/json"}
         if api_key:
             self.prompt_headers["Authorization"] = f"Bearer {api_key}"
-        
+
         # Track last sent sentence to prevent duplicates
         self._last_sent_sentence: str = ""
+
+        # Initialize circuit breaker for LLM calls
+        self.llm_breaker = CircuitBreaker(
+            CircuitBreakerConfig(
+                name="llm_service",
+                failure_threshold=3,        # Open after 3 failures
+                recovery_timeout=30.0,      # Try recovery after 30s
+                success_threshold=2,        # Close after 2 successes
+            )
+        )
 
     def _clean_raw_bytes(self, line: bytes) -> dict[str, str] | None:
         """
@@ -182,14 +200,17 @@ class LanguageModelProcessor:
                 self._last_sent_sentence = ""
                 
                 logger.success(f"LLM Processor: Received text for LLM: '{detected_text}'")
-                self.conversation_history.append({"role": "user", "content": detected_text})
+                self.conversation_history.add_message("user", detected_text)
+
+                # Get thread-safe snapshot of conversation history
+                all_messages = self.conversation_history.get_messages(as_dict=True)
 
                 # Prepare messages for LLM with conversation context
                 # Separate system/few-shot prompts from actual conversation turns
                 system_fewshot = []
                 conversation_turns = []
-                
-                for msg in self.conversation_history:
+
+                for msg in all_messages:
                     # System messages and early assistant/user examples are kept as prompts
                     if msg["role"] == "system":
                         system_fewshot.append(msg)
@@ -256,14 +277,19 @@ class LanguageModelProcessor:
                 sentence_buffer: list[str] = []
                 assistant_response_buffer: list[str] = []  # Accumulate full response for memory
                 try:
-                    with requests.post(
-                        str(self.completion_url),
-                        headers=self.prompt_headers,
-                        json=data,
-                        stream=True,
-                        timeout=30,  # Add a timeout for the request itself
-                    ) as response:
-                        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+                    # Execute with circuit breaker protection
+                    def make_llm_request():
+                        response = requests.post(
+                            str(self.completion_url),
+                            headers=self.prompt_headers,
+                            json=data,
+                            stream=True,
+                            timeout=30,
+                        )
+                        response.raise_for_status()
+                        return response
+
+                    with self.llm_breaker.call(make_llm_request) as response:
                         _first_token_time = None
                         logger.debug("LLM Processor: Request to LLM successful, processing stream...")
                         for line in response.iter_lines():
@@ -329,24 +355,40 @@ class LanguageModelProcessor:
                                 except Exception as e:
                                     logger.warning(f"LLM Processor: Failed to store conversation in memory: {e}")
 
+                except CircuitBreakerOpen as e:
+                    logger.error(str(e))
+                    self.tts_input_queue.put(
+                        f"My thinking module is temporarily unavailable. "
+                        f"I'll try again in {int(e.retry_after)} seconds."
+                    )
                 except requests.exceptions.ConnectionError as e:
-                    logger.error(f"LLM Processor: Connection error to LLM service: {e}")
+                    error = LLMConnectionError(str(self.completion_url), e)
+                    logger.error(str(error))
                     self.tts_input_queue.put(
                         "I'm unable to connect to my thinking module. Please check the LLM service connection."
                     )
                 except requests.exceptions.Timeout as e:
-                    logger.error(f"LLM Processor: Request to LLM timed out: {e}")
+                    error = LLMTimeoutError(30.0, str(self.completion_url))
+                    logger.error(str(error))
                     self.tts_input_queue.put("My brain seems to be taking too long to respond. It might be overloaded.")
                 except requests.exceptions.HTTPError as e:
                     status_code = (
                         e.response.status_code
                         if hasattr(e, "response") and hasattr(e.response, "status_code")
-                        else "unknown"
+                        else 500
                     )
-                    logger.error(f"LLM Processor: HTTP error {status_code} from LLM service: {e}")
+                    response_text = (
+                        e.response.text
+                        if hasattr(e, "response") and hasattr(e.response, "text")
+                        else str(e)
+                    )
+                    error = LLMResponseError(status_code, response_text, str(self.completion_url))
+                    logger.error(str(error))
                     self.tts_input_queue.put(f"I received an error from my thinking module. HTTP status {status_code}.")
                 except requests.exceptions.RequestException as e:
-                    logger.error(f"LLM Processor: Request to LLM failed: {e}")
+                    # Wrap in generic LLM exception
+                    error = LLMConnectionError(str(self.completion_url), e)
+                    logger.error(f"LLM Processor: Request to LLM failed: {error}")
                     self.tts_input_queue.put("Sorry, I encountered an error trying to reach my brain.")
                 except Exception as e:
                     logger.exception(f"LLM Processor: Unexpected error during LLM request/streaming: {e}")
