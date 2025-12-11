@@ -1,0 +1,44 @@
+[Unit]
+Description=GLaDOS WebSocket Bridge Server
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=glados
+Group=glados
+WorkingDirectory=/opt/glados/websocket-bridge
+ExecStart=/opt/glados/websocket-bridge/venv/bin/python bridge_server.py
+
+# Environment variables
+Environment="GLADOS_HOST=10.0.0.15"
+Environment="GLADOS_PORT=5555"
+Environment="WEBSOCKET_HOST=0.0.0.0"
+Environment="WEBSOCKET_PORT=8765"
+Environment="PYTHONUNBUFFERED=1"
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=glados-bridge
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+
+# Resource limits
+LimitNOFILE=65536
+MemoryLimit=512M
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target

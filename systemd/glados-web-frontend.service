@@ -1,0 +1,37 @@
+[Unit]
+Description=GLaDOS Web Frontend Server
+After=network.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=glados
+Group=glados
+WorkingDirectory=/opt/glados/web
+ExecStart=/usr/bin/python3 -m http.server 8080
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=glados-web
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/glados/web
+
+# Resource limits
+LimitNOFILE=4096
+MemoryLimit=128M
+CPUQuota=100%
+
+[Install]
+WantedBy=multi-user.target

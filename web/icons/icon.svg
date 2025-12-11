@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Black background -->
+  <rect width="512" height="512" fill="#000000"/>
+
+  <!-- Orange circle -->
+  <circle cx="256" cy="256" r="200" fill="#ff6600" stroke="#ff8800" stroke-width="8"/>
+
+  <!-- White "G" -->
+  <text x="256" y="340" font-family="Arial, sans-serif" font-size="280" font-weight="bold" fill="#ffffff" text-anchor="middle">G</text>
+</svg>

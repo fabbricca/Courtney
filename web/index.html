@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#ff6600">
+    <meta name="description" content="GLaDOS - Genetic Lifeform and Disk Operating System">
+    <title>GLaDOS</title>
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="/icons/icon-192.png">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Authentication Screen -->
+        <div id="auth-screen" class="screen">
+            <div class="auth-container">
+                <div class="logo">
+                    <h1>GLaDOS</h1>
+                    <p class="subtitle">Genetic Lifeform and Disk Operating System</p>
+                </div>
+
+                <div class="auth-form">
+                    <input
+                        type="password"
+                        id="token-input"
+                        placeholder="Enter authentication token"
+                        autocomplete="off"
+                    >
+                    <button id="connect-btn" class="primary-btn">Connect</button>
+                    <div id="auth-error" class="error-message"></div>
+                </div>
+
+                <div class="connection-info">
+                    <label for="server-url">Server URL:</label>
+                    <input
+                        type="text"
+                        id="server-url"
+                        value="ws://localhost:8765"
+                        placeholder="ws://localhost:8765"
+                    >
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Screen -->
+        <div id="chat-screen" class="screen" style="display: none;">
+            <!-- Status Bar -->
+            <div id="status-bar">
+                <div class="status-left">
+                    <span id="connection-status" class="status-indicator connected">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Connected</span>
+                    </span>
+                    <span id="user-info"></span>
+                </div>
+                <div class="status-right">
+                    <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
+                    <button id="disconnect-btn" class="icon-btn" title="Disconnect">⏏</button>
+                </div>
+            </div>
+
+            <!-- Messages Container -->
+            <div id="messages-container">
+                <div id="load-more" class="load-more" style="display: none;">
+                    <button id="load-more-btn">Load earlier messages...</button>
+                </div>
+                <div id="messages"></div>
+                <div id="scroll-anchor"></div>
+            </div>
+
+            <!-- Input Area -->
+            <div id="input-area">
+                <div class="input-controls">
+                    <button id="voice-btn" class="icon-btn voice-btn" title="Push to talk">
+                        🎤
+                    </button>
+                    <input
+                        type="text"
+                        id="message-input"
+                        placeholder="Type a message..."
+                        autocomplete="off"
+                    >
+                    <button id="send-btn" class="icon-btn send-btn" title="Send message">
+                        ➤
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="panel" style="display: none;">
+            <div class="panel-content">
+                <div class="panel-header">
+                    <h2>Settings</h2>
+                    <button id="close-settings-btn" class="icon-btn">✕</button>
+                </div>
+
+                <div class="settings-group">
+                    <h3>Audio</h3>
+                    <label>
+                        <input type="checkbox" id="audio-enabled" checked>
+                        Enable voice input/output
+                    </label>
+                    <label>
+                        <input type="checkbox" id="wake-lock-enabled">
+                        Keep screen awake during conversation
+                    </label>
+                </div>
+
+                <div class="settings-group">
+                    <h3>Display</h3>
+                    <label>
+                        <input type="checkbox" id="show-timestamps" checked>
+                        Show message timestamps
+                    </label>
+                </div>
+
+                <div class="settings-group">
+                    <button id="clear-token-btn" class="secondary-btn">Clear saved token</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/websocket.js" type="module"></script>
+    <script src="/js/audio.js" type="module"></script>
+    <script src="/js/app.js" type="module"></script>
+</body>
+</html>

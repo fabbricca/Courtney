@@ -268,11 +268,18 @@ class LanguageModelProcessor:
                     "model": self.model_name,
                     "stream": True,
                     "messages": messages_for_llm,
-                    "temperature": self.temperature,
-                    "repeat_penalty": self.repeat_penalty,
-                    "top_p": self.top_p,
-                    "top_k": self.top_k,
+                    "options": {
+                        "repeat_penalty": 1.2,  # Discourage repetition
+                        "temperature": 0.8,     # Increase creativity slightly
+                        "top_k": 40,
+                        "top_p": 0.9,
+                    }
                 }
+                
+                # Log the context being sent for debugging
+                if len(messages_for_llm) > 0:
+                    last_msg = messages_for_llm[-1]
+                    logger.debug(f"LLM Context Last Msg: {last_msg.get('role')}: {last_msg.get('content')[:50]}...")
                 
                 logger.success(f"LLM Processor: Memory context built in {(_time.time() - _start_time)*1000:.0f}ms, sending {len(messages_for_llm)} messages to LLM")
 

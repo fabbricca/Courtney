@@ -12,27 +12,141 @@ https://github.com/user-attachments/assets/c22049e4-7fba-4e84-8667-2c6657a656a0
 
 ---
 
-## 🎉 What's New in v2.1
+## 🎉 Latest Updates
 
-### JWT-Based Multi-User Authentication ✨
+### 🌐 Web Interface (v2.0 - Simplified)
+
+**Status:** ✅ Production Ready
+
+Access GLaDOS from any device with full voice support and mobile PWA!
+
+#### Quick Start (2 Commands)
+
+**On GPU server:**
+```bash
+./scripts/start_server.sh  # Starts GLaDOS + WebSocket bridge + Web frontend
+```
+
+**From any device:**
+```bash
+./scripts/start_client.sh --web   # Open web interface
+./scripts/start_client.sh --tui   # Launch TUI client
+./scripts/start_client.sh --cli   # Launch CLI client
+```
+
+**Features:**
+- ✅ Full voice input/output (Web Audio API)
+- ✅ Mobile PWA (install as app on Android/iOS)
+- ✅ Text and voice chat
+- ✅ JWT authentication support
+- ✅ Real-time WebSocket communication
+- ✅ Works on any modern browser
+
+**Default server:** `iberu.me:12345`
+
+#### Web Interface Architecture
+
+```
+Browser (http://localhost:8080)
+    ↓ WebSocket
+WebSocket Bridge (ws://localhost:8765)
+    ↓ Binary Protocol
+GLaDOS Server (tcp://localhost:5555)
+```
+
+**Mobile Installation:**
+1. Open `http://your-server-ip:8080` in Chrome (Android) or Safari (iOS)
+2. Add to Home screen
+3. Use like a native app with full voice support
+
+**Note:** Enterprise deployment options (Kubernetes, Docker Compose, CI/CD) are archived in `archived/deployment-infrastructure/` if needed.
+
+---
+
+### v2.1: JWT-Based Multi-User Authentication ✨
+
 - **Secure authentication** with JWT tokens and bcrypt password hashing
 - **Per-user memory isolation** - each user has their own conversation and entity memory
-- **Role-based access control (RBAC)** foundation for future permissions
+- **Role-based access control (RBAC)** - admin, user, guest, restricted roles
 - **Network mode** with authenticated clients
 - **Backward compatible** - authentication is optional
 
+#### User Management
+
+```bash
+# List all users
+python scripts/manage_users.py list
+
+# Create user with role
+python scripts/manage_users.py create <username> <email> --role <admin|user|guest|restricted>
+
+# Change user role
+python scripts/manage_users.py set-role <username> <role>
+
+# Deactivate user
+python scripts/manage_users.py set-active <username> false
+
+# Revoke all user tokens
+python scripts/manage_users.py revoke-tokens <username>
+
+# View role permissions
+python scripts/manage_users.py permissions <role>
+```
+
+#### Role Permission Matrix
+
+| Permission | Admin | User | Guest | Restricted |
+|-----------|-------|------|-------|-----------|
+| Chat | ✅ | ✅ | ✅ | ✅ |
+| View Memory | ✅ | ✅ | ✅ | ❌ |
+| Search Memory | ✅ | ✅ | ❌ | ❌ |
+| Create Calendar/Reminders/Todos | ✅ | ✅ | ❌ | ❌ |
+| View Calendar/Reminders/Todos | ✅ | ✅ | ✅ | ❌ |
+| Get Time/Weather | ✅ | ✅ | ✅ | ✅/❌ |
+| Manage Users/Roles | ✅ | ❌ | ❌ | ❌ |
+
+---
+
 ### Enhanced Network Mode 🌐
+
 - **TUI client** with rich terminal interface (Textual-based)
 - **Authentication support** for secure multi-user deployments
 - **Real-time audio streaming** over TCP
 - **Text-based chat** alongside voice interactions
 
+**Connect with authentication:**
+```bash
+# TUI client
+uv run glados tui --host localhost --port 5555 --auth-token "your-jwt-token"
+
+# Or use token file
+uv run glados tui --auth-token-file ~/.glados_token
+
+# Web client (supports auth via web interface)
+./scripts/start_client.sh --web
+```
+
+---
+
 ### Code Quality Improvements (v2.0) 🔧
+
 - **Thread-safe conversation state** - eliminates race conditions
 - **Structured exception handling** - clear error types and context
 - **Circuit breaker pattern** - prevents cascading LLM failures
 - **80% test coverage** - comprehensive unit and integration tests
 - **Component lifecycle management** - standardized patterns
+
+#### Recent Fixes
+
+**Database Connections:**
+- Fixed all unclosed SQLite connections using context managers (`with` statements)
+- Ensures proper resource cleanup even on exceptions
+- Compatible with Python 3.13+ strict resource tracking
+
+**pytest Configuration:**
+- Fixed ResourceWarning false positives in Python 3.13
+- All 73 tests passing cleanly
+- Proper warning filtering for SQLite and pytest cleanup
 
 ---
 
@@ -56,6 +170,7 @@ This will entail:
 - [x] Generate a medium- and long-term memory for GLaDOS (ConversationMemory + EntityMemory with async LLM extraction!)
 - [x] Multi-user authentication and memory isolation (v2.1)
 - [x] Network mode with TUI client (v2.1)
+- [x] Web interface with full voice support (v2.0)
 - [ ] Give GLaDOS vision via a VLM (either a full VLM for everything, or a 'vision module' using a tiny VLM the GLaDOS can function call!)
 - [ ] Create 3D-printable parts
 - [ ] Design the animatronics system
@@ -85,6 +200,13 @@ To do this, the system constantly records data to a circular buffer, waiting for
 - Text message support for chat-based interactions
 - Optional JWT authentication for secure multi-user deployments
 - TUI client with rich terminal interface
+
+**Web Interface**:
+- WebSocket bridge for browser communication
+- Progressive Web App (PWA) with service worker
+- Full voice input/output via Web Audio API
+- Mobile-friendly, installable on Android/iOS
+- Real-time bidirectional communication
 
 ### Subgoals
 - The other aim of the project is to minimize dependencies, so this can run on constrained hardware. That means no PyTorch or other large packages.
@@ -219,6 +341,60 @@ uv run glados tui --host localhost --port 5555 --auth-token "your-jwt-token"
 - **JWT authentication**: Secure token-based auth with 1h access tokens, 30d refresh tokens
 - **RBAC ready**: Permission system foundation for future access control
 - **Backward compatible**: Auth is optional, works without authentication
+
+---
+
+## Web Interface
+
+### Start Web Server
+
+On your GPU server:
+```bash
+./scripts/start_server.sh
+```
+
+This starts:
+- GLaDOS main server (port 5555)
+- WebSocket bridge (port 8765)
+- Web frontend (port 8080)
+
+### Connect from Browser
+
+```bash
+# Open web interface
+./scripts/start_client.sh --web
+
+# Or specify custom server
+./scripts/start_client.sh --web --server localhost:8080
+```
+
+### Features
+
+- ✅ Full voice input (Web Audio API, microphone access)
+- ✅ Full voice output (audio playback)
+- ✅ Text chat interface
+- ✅ Mobile PWA (install as app)
+- ✅ JWT authentication support
+- ✅ Dark theme
+- ✅ Real-time WebSocket connection
+- ✅ Works on desktop and mobile
+
+### Access Points
+
+**Local:**
+```
+http://localhost:8080
+```
+
+**Remote:**
+```
+http://your-server-ip:8080
+```
+
+**Production (with domain):**
+```
+https://iberu.me
+```
 
 ---
 
@@ -454,6 +630,19 @@ pytest tests/unit/test_user_manager.py -v
 PYTHONPATH=src python tests/integration/test_multi_user_memory.py
 ```
 
+### Web Interface Tests
+
+```bash
+# Unit tests for WebSocket bridge
+cd websocket-bridge
+pytest test_protocol.py -v
+
+# Health checks
+curl http://localhost:8766/health
+curl http://localhost:8766/ready
+curl http://localhost:8766/metrics
+```
+
 ---
 
 ## Project Structure
@@ -468,13 +657,59 @@ GLaDOS/
 │   ├── ASR/            # Speech recognition (Whisper)
 │   ├── TTS/            # Text-to-speech (Kokoro, Piper)
 │   └── glados_ui/      # TUI client
+├── websocket-bridge/   # WebSocket ↔ TCP bridge for web interface
+│   ├── bridge_server.py
+│   ├── protocol.py
+│   └── requirements.txt
+├── web/                # Web interface (PWA)
+│   ├── index.html
+│   ├── js/app.js
+│   ├── css/style.css
+│   ├── service-worker.js
+│   ├── manifest.json
+│   └── icons/
 ├── network/            # Network client & auth
 ├── configs/            # Configuration files
 ├── tests/
 │   ├── unit/          # Unit tests
 │   └── integration/   # Integration tests
-└── scripts/           # Installation & utility scripts
+├── scripts/           # Installation & utility scripts
+│   ├── start_server.sh    # Start everything (GLaDOS + bridge + web)
+│   ├── start_client.sh    # Connect (--web/--tui/--cli)
+│   ├── manage_users.py    # User management CLI
+│   └── create_admin.py    # Create admin user
+└── archived/          # Archived deployment infrastructure
+    └── deployment-infrastructure/  # K8s, Docker Compose, CI/CD
 ```
+
+---
+
+## Recent Development Notes
+
+### Database Fixes (2025-12-11)
+- Fixed all unclosed SQLite connections using context managers
+- 17 database connection instances updated across database.py and manage_users.py
+- Ensures proper resource cleanup, compatible with Python 3.13+
+- All 73 tests passing cleanly
+
+### pytest Configuration (2025-12-11)
+- Fixed ResourceWarning false positives in Python 3.13
+- Updated pytest.ini to filter SQLite ResourceWarnings
+- Tests now run cleanly without false warning failures
+
+### Web Interface Simplification (2025-12-11)
+- Simplified from 65+ files to 2 scripts (start_server.sh + start_client.sh)
+- Archived enterprise deployment infrastructure (K8s, Docker Compose, CI/CD)
+- Focus on simplicity: < 1 minute deployment vs 30+ minutes
+- Enterprise features available in archived/ if needed
+
+### Week 13: RBAC Complete (2024-12-11)
+- Implemented comprehensive Role-Based Access Control
+- 4 roles: admin, user, guest, restricted
+- Permission-based function calling
+- User management CLI (manage_users.py)
+- Database schema migration with role field
+- Full backward compatibility
 
 ---
 
@@ -529,5 +764,7 @@ This project maintains the original license from [dnhkng/GLaDOS](https://github.
 **v2.0 Refactoring**: Code quality improvements, thread safety, exception handling, circuit breakers, testing infrastructure
 
 **v2.1 Authentication & Multi-User**: JWT authentication, RBAC foundation, per-user memory isolation, TUI client
+
+**v2.0 Web Interface**: WebSocket bridge, PWA with voice support, mobile installation, simplified deployment
 
 Join our [Discord community](https://discord.com/invite/ERTDKwpjNB) to connect with other GLaDOS enthusiasts!
