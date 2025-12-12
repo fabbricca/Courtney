@@ -18,27 +18,47 @@
 </head>
 <body>
     <div id="app">
-        <!-- Authentication Screen -->
-        <div id="auth-screen" class="screen">
-            <div class="auth-container">
+        <!-- Login Screen -->
+        <div id="login-screen" class="screen">
+            <div class="login-container">
                 <div class="logo">
                     <h1>GLaDOS</h1>
                     <p class="subtitle">Genetic Lifeform and Disk Operating System</p>
                 </div>
 
-                <div class="auth-form">
-                    <input
-                        type="password"
-                        id="token-input"
-                        placeholder="Enter authentication token"
-                        autocomplete="off"
-                    >
-                    <button id="connect-btn" class="primary-btn">Connect</button>
-                    <div id="auth-error" class="error-message"></div>
+                <div class="login-form">
+                    <div class="input-group">
+                        <input
+                            type="text"
+                            id="username-input"
+                            placeholder="Username"
+                            autocomplete="username"
+                            autofocus
+                        >
+                    </div>
+
+                    <div class="input-group">
+                        <input
+                            type="password"
+                            id="password-input"
+                            placeholder="Password"
+                            autocomplete="current-password"
+                        >
+                    </div>
+
+                    <div class="checkbox-group">
+                        <label>
+                            <input type="checkbox" id="remember-me">
+                            <span>Remember me</span>
+                        </label>
+                    </div>
+
+                    <button id="login-btn" class="primary-btn">Log In</button>
+                    <div id="login-error" class="error-message"></div>
                 </div>
 
                 <div class="connection-info">
-                    <label for="server-url">Server URL:</label>
+                    <label for="server-url">Server:</label>
                     <input
                         type="text"
                         id="server-url"
@@ -62,7 +82,7 @@
                 </div>
                 <div class="status-right">
                     <button id="settings-btn" class="icon-btn" title="Settings">⚙</button>
-                    <button id="disconnect-btn" class="icon-btn" title="Disconnect">⏏</button>
+                    <button id="logout-btn" class="icon-btn" title="Log out">⏏</button>
                 </div>
             </div>
 
@@ -123,7 +143,12 @@
                 </div>
 
                 <div class="settings-group">
-                    <button id="clear-token-btn" class="secondary-btn">Clear saved token</button>
+                    <h3>Account</h3>
+                    <div class="account-info">
+                        <p><strong>Logged in as:</strong> <span id="logged-in-user"></span></p>
+                        <p><strong>Role:</strong> <span id="user-role"></span></p>
+                    </div>
+                    <button id="logout-settings-btn" class="danger-btn">Log Out</button>
                 </div>
             </div>
         </div>

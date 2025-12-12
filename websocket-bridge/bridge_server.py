@@ -19,6 +19,7 @@ import sys
 from typing import Optional
 from aiohttp import web
 from protocol import ws_to_glados, glados_to_ws, read_glados_message
+from auth_api import handle_login, handle_logout, cors_middleware
 
 # Configuration
 GLADOS_HOST = '10.0.0.15'
@@ -236,11 +237,17 @@ async def metrics_endpoint(request):
 
 
 async def start_health_server():
-    """Start health check HTTP server."""
-    app = web.Application()
+    """Start health check HTTP server with API endpoints."""
+    app = web.Application(middlewares=[cors_middleware])
+
+    # Health check endpoints
     app.router.add_get('/health', health_check)
     app.router.add_get('/ready', ready_check)
     app.router.add_get('/metrics', metrics_endpoint)
+
+    # Authentication API endpoints
+    app.router.add_post('/api/login', handle_login)
+    app.router.add_post('/api/logout', handle_logout)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -248,7 +255,8 @@ async def start_health_server():
     site = web.TCPSite(runner, WEBSOCKET_HOST, HEALTH_CHECK_PORT)
     await site.start()
 
-    logger.info(f"Health check server running on {WEBSOCKET_HOST}:{HEALTH_CHECK_PORT}")
+    logger.info(f"Health check and API server running on {WEBSOCKET_HOST}:{HEALTH_CHECK_PORT}")
+    logger.info(f"API endpoints: POST /api/login, POST /api/logout")
 
     return runner
 

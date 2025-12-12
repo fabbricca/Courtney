@@ -4,12 +4,14 @@
 
 import GLaDOSWebSocket from './websocket.js';
 import { AudioCapture, AudioPlayer, float32ToBase64PCM } from './audio.js';
+import { LoginManager } from './login.js';
 
 // Application state
 const state = {
     ws: null,
     audioCapture: null,
     audioPlayer: null,
+    loginManager: null,
     currentUser: null,
     messages: [],
     historyOffset: 0,
@@ -22,11 +24,13 @@ const state = {
 
 // DOM elements
 const elements = {
-    // Auth screen
-    authScreen: document.getElementById('auth-screen'),
-    tokenInput: document.getElementById('token-input'),
-    connectBtn: document.getElementById('connect-btn'),
-    authError: document.getElementById('auth-error'),
+    // Login screen
+    loginScreen: document.getElementById('login-screen'),
+    usernameInput: document.getElementById('username-input'),
+    passwordInput: document.getElementById('password-input'),
+    rememberMeCheckbox: document.getElementById('remember-me'),
+    loginBtn: document.getElementById('login-btn'),
+    loginError: document.getElementById('login-error'),
     serverUrl: document.getElementById('server-url'),
 
     // Chat screen
@@ -41,7 +45,7 @@ const elements = {
     messageInput: document.getElementById('message-input'),
     sendBtn: document.getElementById('send-btn'),
     voiceBtn: document.getElementById('voice-btn'),
-    disconnectBtn: document.getElementById('disconnect-btn'),
+    logoutBtn: document.getElementById('logout-btn'),
     settingsBtn: document.getElementById('settings-btn'),
 
     // Settings panel
@@ -50,7 +54,8 @@ const elements = {
     audioEnabledCheckbox: document.getElementById('audio-enabled'),
     wakeLockCheckbox: document.getElementById('wake-lock-enabled'),
     showTimestampsCheckbox: document.getElementById('show-timestamps'),
-    clearTokenBtn: document.getElementById('clear-token-btn'),
+    accountUsername: document.getElementById('account-username'),
+    logoutSettingsBtn: document.getElementById('logout-settings-btn'),
 
     // Loading
     loading: document.getElementById('loading')
@@ -59,12 +64,14 @@ const elements = {
 /**
  * Initialize the application
  */
-function init() {
+async function init() {
     console.log('Initializing GLaDOS Web Interface...');
 
-    // Check for saved token and server URL
-    const savedToken = localStorage.getItem('glados_token');
-    const savedServerUrl = localStorage.getItem('glados_server_url');
+    // Initialize login manager
+    const savedServerUrl = localStorage.getItem('glados_server_url') || 'ws://localhost:8765';
+    const apiBaseUrl = savedServerUrl.replace('ws://', 'http://').replace('wss://', 'https://').replace(':8765', ':8766');
+
+    state.loginManager = new LoginManager(apiBaseUrl);
 
     if (savedServerUrl) {
         elements.serverUrl.value = savedServerUrl;
@@ -77,9 +84,18 @@ function init() {
     elements.showTimestampsCheckbox.checked = state.showTimestamps;
 
     // Setup event listeners
-    elements.connectBtn.addEventListener('click', handleConnect);
-    elements.tokenInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') handleConnect();
+    elements.loginBtn.addEventListener('click', handleLogin);
+    elements.usernameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            elements.passwordInput.focus();
+        }
+    });
+    elements.passwordInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleLogin();
+        }
     });
 
     elements.sendBtn.addEventListener('click', sendMessage);
@@ -101,10 +117,10 @@ function init() {
         stopVoiceRecording();
     });
 
-    elements.disconnectBtn.addEventListener('click', handleDisconnect);
+    elements.logoutBtn.addEventListener('click', handleLogout);
     elements.settingsBtn.addEventListener('click', showSettings);
     elements.closeSettingsBtn.addEventListener('click', hideSettings);
-    elements.clearTokenBtn.addEventListener('click', clearSavedToken);
+    elements.logoutSettingsBtn.addEventListener('click', handleLogout);
 
     elements.audioEnabledCheckbox.addEventListener('change', (e) => {
         state.audioEnabled = e.target.checked;
@@ -128,10 +144,11 @@ function init() {
 
     elements.loadMoreBtn.addEventListener('click', loadMoreHistory);
 
-    // Auto-connect if token exists
-    if (savedToken) {
-        elements.tokenInput.value = savedToken;
-        handleConnect();
+    // Auto-login if saved credentials exist
+    const savedAuth = state.loginManager.getSavedAuth();
+    if (savedAuth && savedAuth.token) {
+        console.log('Found saved credentials, attempting auto-login...');
+        await autoLogin(savedAuth.token);
     }
 
     // Resume audio context on first user interaction
@@ -139,29 +156,80 @@ function init() {
 }
 
 /**
- * Handle connection button click
+ * Auto-login with saved token
  */
-function handleConnect() {
-    const token = elements.tokenInput.value.trim();
+async function autoLogin(token) {
     const serverUrl = elements.serverUrl.value.trim();
 
-    if (!token) {
-        showAuthError('Please enter an authentication token');
-        return;
-    }
-
     if (!serverUrl) {
-        showAuthError('Please enter a server URL');
+        console.warn('No server URL configured');
         return;
     }
-
-    elements.authError.textContent = '';
-    elements.connectBtn.disabled = true;
-    elements.connectBtn.textContent = 'Connecting...';
 
     // Save server URL
     localStorage.setItem('glados_server_url', serverUrl);
 
+    // Connect to WebSocket with saved token
+    connectWithToken(token, serverUrl);
+}
+
+/**
+ * Handle login button click
+ */
+async function handleLogin() {
+    const username = elements.usernameInput.value.trim();
+    const password = elements.passwordInput.value.trim();
+    const rememberMe = elements.rememberMeCheckbox.checked;
+    const serverUrl = elements.serverUrl.value.trim();
+
+    if (!username) {
+        showLoginError('Please enter your username');
+        return;
+    }
+
+    if (!password) {
+        showLoginError('Please enter your password');
+        return;
+    }
+
+    if (!serverUrl) {
+        showLoginError('Please enter a server URL');
+        return;
+    }
+
+    elements.loginError.textContent = '';
+    elements.loginBtn.disabled = true;
+    elements.loginBtn.textContent = 'Logging in...';
+
+    try {
+        // Attempt login
+        const result = await state.loginManager.login(username, password, rememberMe);
+
+        if (result.success) {
+            console.log('Login successful:', result.user);
+
+            // Save server URL
+            localStorage.setItem('glados_server_url', serverUrl);
+
+            // Connect to WebSocket with token
+            connectWithToken(result.token, serverUrl);
+        } else {
+            showLoginError(result.error || 'Login failed');
+            elements.loginBtn.disabled = false;
+            elements.loginBtn.textContent = 'Log In';
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        showLoginError('Connection error. Please check your server URL.');
+        elements.loginBtn.disabled = false;
+        elements.loginBtn.textContent = 'Log In';
+    }
+}
+
+/**
+ * Connect to WebSocket with authentication token
+ */
+function connectWithToken(token, serverUrl) {
     // Create WebSocket connection
     state.ws = new GLaDOSWebSocket(serverUrl);
 
@@ -173,15 +241,17 @@ function handleConnect() {
     state.ws.on('authenticated', (data) => {
         console.log('Authenticated:', data);
         state.currentUser = data;
-        localStorage.setItem('glados_token', token);
         showChatScreen();
     });
 
     state.ws.on('auth_failed', (data) => {
         console.error('Authentication failed:', data);
-        showAuthError(data.message || 'Authentication failed');
-        elements.connectBtn.disabled = false;
-        elements.connectBtn.textContent = 'Connect';
+        showLoginError(data.message || 'Authentication failed');
+        elements.loginBtn.disabled = false;
+        elements.loginBtn.textContent = 'Log In';
+
+        // Clear invalid saved token
+        state.loginManager.clearAuth();
     });
 
     state.ws.on('text', (data) => {
@@ -224,12 +294,17 @@ function handleConnect() {
  * Show chat screen after successful authentication
  */
 function showChatScreen() {
-    elements.authScreen.style.display = 'none';
+    elements.loginScreen.style.display = 'none';
     elements.chatScreen.style.display = 'flex';
 
     // Update user info
-    elements.userInfo.textContent = state.currentUser.username ?
-        `@${state.currentUser.username}` : `User #${state.currentUser.user_id}`;
+    const username = state.currentUser.username || state.loginManager.getUser()?.username;
+    elements.userInfo.textContent = username ? `@${username}` : `User #${state.currentUser.user_id}`;
+
+    // Update account info in settings
+    if (elements.accountUsername) {
+        elements.accountUsername.textContent = username || `User #${state.currentUser.user_id}`;
+    }
 
     // Initialize audio if enabled
     if (state.audioEnabled) {
@@ -481,25 +556,43 @@ function updateConnectionStatus(connected, statusText = null) {
 }
 
 /**
- * Handle disconnect button
+ * Handle logout button
  */
-function handleDisconnect() {
+async function handleLogout() {
+    // Call logout API
+    try {
+        await state.loginManager.logout();
+    } catch (error) {
+        console.error('Logout API error:', error);
+        // Continue with logout even if API call fails
+    }
+
+    // Disconnect WebSocket
     if (state.ws) {
         state.ws.disconnect(true);
     }
 
     cleanup();
 
-    // Return to auth screen
+    // Return to login screen
     elements.chatScreen.style.display = 'none';
-    elements.authScreen.style.display = 'flex';
-    elements.connectBtn.disabled = false;
-    elements.connectBtn.textContent = 'Connect';
+    elements.loginScreen.style.display = 'flex';
+    elements.loginBtn.disabled = false;
+    elements.loginBtn.textContent = 'Log In';
 
     // Clear messages
     state.messages = [];
     elements.messages.innerHTML = '';
     state.historyOffset = 0;
+
+    // Clear form
+    elements.passwordInput.value = '';
+
+    // Focus username input
+    elements.usernameInput.focus();
+
+    // Hide settings if open
+    hideSettings();
 }
 
 /**
@@ -534,20 +627,10 @@ function hideSettings() {
 }
 
 /**
- * Clear saved token
+ * Show login error
  */
-function clearSavedToken() {
-    localStorage.removeItem('glados_token');
-    elements.tokenInput.value = '';
-    alert('Saved token cleared');
-    hideSettings();
-}
-
-/**
- * Show authentication error
- */
-function showAuthError(message) {
-    elements.authError.textContent = message;
+function showLoginError(message) {
+    elements.loginError.textContent = message;
 }
 
 /**
